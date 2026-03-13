@@ -1,0 +1,163 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+@layer base {
+  :root {
+    /* Modern Minimal — light */
+    --background: 0 0% 98%;
+    --foreground: 0 0% 9%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 9%;
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 94%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 94%;
+    --muted-foreground: 0 0% 45%;
+    --accent: 0 0% 94%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 88%;
+    --input: 0 0% 88%;
+    --ring: 0 0% 9%;
+    --radius: 0.75rem;
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 0 0% 20%;
+    --sidebar-primary: 0 0% 9%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 0 0% 94%;
+    --sidebar-accent-foreground: 0 0% 9%;
+    --sidebar-border: 0 0% 88%;
+    --sidebar-ring: 0 0% 9%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 98%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 98%;
+    --info: 210 100% 52%;
+    --info-foreground: 0 0% 98%;
+
+    --smart-s: 142 71% 45%;
+    --smart-m: 210 100% 52%;
+    --smart-a: 38 92% 50%;
+    --smart-r: 280 65% 55%;
+    --smart-t: 0 72% 51%;
+
+    --gradient-primary: linear-gradient(135deg, hsl(0 0% 9%), hsl(0 0% 30%));
+    --shadow-card: 0 1px 3px hsl(0 0% 0% / 0.08), 0 1px 2px hsl(0 0% 0% / 0.06);
+    --shadow-elevated: 0 4px 16px hsl(0 0% 0% / 0.12);
+  }
+
+  /* Role-based accent colors — light */
+  :root[data-role="employee"] {
+    --primary: 220 90% 52%;
+    --primary-foreground: 0 0% 98%;
+    --ring: 220 90% 52%;
+    --sidebar-primary: 220 90% 52%;
+  }
+  :root[data-role="manager"] {
+    --primary: 262 80% 58%;
+    --primary-foreground: 0 0% 98%;
+    --ring: 262 80% 58%;
+    --sidebar-primary: 262 80% 58%;
+  }
+  :root[data-role="hr"] {
+    --primary: 142 60% 40%;
+    --primary-foreground: 0 0% 98%;
+    --ring: 142 60% 40%;
+    --sidebar-primary: 142 60% 40%;
+  }
+
+  /* Modern Minimal — dark (#171717 base) */
+  .dark {
+    --background: 0 0% 9%;
+    --foreground: 0 0% 90%;
+    --card: 0 0% 15%;
+    --card-foreground: 0 0% 90%;
+    --popover: 0 0% 15%;
+    --popover-foreground: 0 0% 90%;
+    --primary: 0 0% 90%;
+    --primary-foreground: 0 0% 9%;
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 90%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 64%;
+    --accent: 0 0% 20%;
+    --accent-foreground: 0 0% 90%;
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 25%;
+    --input: 0 0% 25%;
+    --ring: 0 0% 80%;
+
+    --sidebar-background: 0 0% 7%;
+    --sidebar-foreground: 0 0% 64%;
+    --sidebar-primary: 0 0% 90%;
+    --sidebar-primary-foreground: 0 0% 9%;
+    --sidebar-accent: 0 0% 15%;
+    --sidebar-accent-foreground: 0 0% 90%;
+    --sidebar-border: 0 0% 18%;
+
+    --gradient-primary: linear-gradient(135deg, hsl(0 0% 90%), hsl(0 0% 60%));
+    --shadow-card: 0 1px 3px hsl(0 0% 0% / 0.4), 0 1px 2px hsl(0 0% 0% / 0.3);
+    --shadow-elevated: 0 8px 32px hsl(0 0% 0% / 0.5);
+  }
+
+  /* Role-based accent colors — dark */
+  .dark[data-role="employee"] {
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 98%;
+    --ring: 217 91% 60%;
+    --sidebar-primary: 217 91% 60%;
+  }
+  .dark[data-role="manager"] {
+    --primary: 270 70% 65%;
+    --primary-foreground: 0 0% 98%;
+    --ring: 270 70% 65%;
+    --sidebar-primary: 270 70% 65%;
+  }
+  .dark[data-role="hr"] {
+    --primary: 142 60% 50%;
+    --primary-foreground: 0 0% 98%;
+    --ring: 142 60% 50%;
+    --sidebar-primary: 142 60% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: "Inter", system-ui, sans-serif;
+  }
+  code, pre, .font-mono {
+    font-family: "JetBrains Mono", monospace;
+  }
+}
+
+@layer utilities {
+  .glass-card {
+    @apply bg-card border border-border rounded-xl;
+    box-shadow: var(--shadow-card);
+  }
+  .glass-card-elevated {
+    @apply bg-card border border-border rounded-xl;
+    box-shadow: var(--shadow-elevated);
+  }
+  .gradient-text {
+    @apply bg-clip-text text-transparent;
+    background-image: var(--gradient-primary);
+  }
+  .smart-bar {
+    @apply h-2 rounded-full transition-all duration-500 ease-out;
+  }
+}

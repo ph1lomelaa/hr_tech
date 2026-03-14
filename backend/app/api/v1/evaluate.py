@@ -1,8 +1,11 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.models.hr_models import Employee, Goal
 from app.schemas.evaluation import (
     EvaluateGoalRequest,
     EvaluateGoalResponse,
@@ -20,14 +23,33 @@ async def evaluate_single_goal(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    SMART-оценка одной цели.
-    Принимает текст → возвращает оценки S/M/A/R/T, рекомендации, переформулировку.
+    SMART-оценка произвольного текста цели.
+    Принимает текст → возвращает оценки S/M/A/R/T, тип цели, стратегическую связку,
+    рекомендации и AI-переформулировку.
     """
+    position = request.position or "Сотрудник"
+    department = request.department or "Подразделение"
+
+    if request.employee_id:
+        result = await db.execute(
+            select(Employee)
+            .options(selectinload(Employee.position), selectinload(Employee.department))
+            .where(Employee.id == request.employee_id)
+        )
+        employee = result.scalar_one_or_none()
+        if not employee:
+            raise HTTPException(status_code=404, detail="Employee not found")
+        if not request.position and employee.position:
+            position = employee.position.name
+        if not request.department and employee.department:
+            department = employee.department.name
+
     return await evaluate_goal(
         goal_text=request.goal_text,
-        position=request.position or "Сотрудник",
-        department=request.department or "Подразделение",
-        goal_id=request.employee_id,  # опционально, для сохранения в БД
+        position=position,
+        department=department,
+        goal_id=None,       # текстовая оценка не привязана к конкретной цели в БД
+        employee_id=request.employee_id,
         db=db,
     )
 
@@ -40,26 +62,22 @@ async def evaluate_existing_goal(
     """
     Оценивает существующую цель из БД по goal_id.
     """
-    from sqlalchemy import select
-    from app.models.hr_models import Goal, Employee
-
     result = await db.execute(
         select(Goal).where(Goal.id == goal_id)
     )
     goal = result.scalar_one_or_none()
     if not goal:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Goal not found")
 
     # Достаём профиль сотрудника
-    emp = await db.get(Employee, goal.employee_id)
-    position = "Сотрудник"
-    department = "Подразделение"
-    if emp:
-        pos = await db.get(__import__("app.models.hr_models", fromlist=["Position"]).Position, emp.position_id)
-        dept = await db.get(__import__("app.models.hr_models", fromlist=["Department"]).Department, emp.department_id)
-        position = pos.name if pos else position
-        department = dept.name if dept else department
+    emp_result = await db.execute(
+        select(Employee)
+        .options(selectinload(Employee.position), selectinload(Employee.department))
+        .where(Employee.id == goal.employee_id)
+    )
+    emp = emp_result.scalar_one_or_none()
+    position = emp.position.name if emp and emp.position else "Сотрудник"
+    department = emp.department.name if emp and emp.department else "Подразделение"
 
     goal_text = goal.goal_text or goal.description or goal.title
 
@@ -87,4 +105,6 @@ async def batch_evaluate_goals(
         year=request.year,
         db=db,
     )
+    if isinstance(result, dict) and result.get("error"):
+        raise HTTPException(status_code=404, detail=result["error"])
     return result

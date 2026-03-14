@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.hr_models import Document
-from app.vector_store.chroma_client import search_documents
+from app.services.rag_service import search_vnd_hybrid
 
 router = APIRouter(prefix="/documents", tags=["Документы ВНД"])
 
@@ -47,11 +47,12 @@ async def list_documents(
 async def search_vnd(
     q: str = Query(..., min_length=3, description="Поисковый запрос"),
     n: int = Query(default=5, le=20),
+    db: AsyncSession = Depends(get_db),
 ):
     """
-    RAG-поиск по содержимому ВНД через ChromaDB.
+    Hybrid RAG-поиск по содержимому ВНД.
     """
-    chunks = await search_documents(query=q, n_results=n)
+    chunks = await search_vnd_hybrid(queries=[q], n_results=n, db=db)
     return {
         "query": q,
         "results": [
@@ -60,7 +61,7 @@ async def search_vnd(
                 "doc_title": c["metadata"].get("doc_title"),
                 "doc_type": c["metadata"].get("doc_type"),
                 "doc_id": c["metadata"].get("doc_id"),
-                "relevance": round(1 - c.get("distance", 0.5), 2),
+                "relevance": round(c.get("rrf_score", 1 - c.get("distance", 0.5)), 2),
             }
             for c in chunks
         ],

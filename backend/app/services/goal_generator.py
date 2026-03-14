@@ -65,6 +65,7 @@ async def generate_goals(
         position=position,
         department=department,
         focus_direction=focus_direction,
+        db=db,
     )
     vnd_context = format_vnd_context(chunks)
     docs_used = list({c["metadata"].get("doc_title", "") for c in chunks if c.get("metadata")})

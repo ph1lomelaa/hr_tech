@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import create_tables
-from app.api.v1 import evaluate, generate, analytics, employees, documents
+from app.api.v1 import evaluate, generate, analytics, employees, documents, goals
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,6 +42,7 @@ app.include_router(generate.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(employees.router, prefix="/api/v1")
 app.include_router(documents.router, prefix="/api/v1")
+app.include_router(goals.router, prefix="/api/v1")
 
 
 @app.get("/")

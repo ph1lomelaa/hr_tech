@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
@@ -7,11 +8,11 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-_client: chromadb.AsyncHttpClient | None = None
+_client: Any | None = None
 _collection = None
 
 
-async def get_chroma_client() -> chromadb.AsyncHttpClient:
+async def get_chroma_client() -> Any:
     global _client
     if _client is None:
         _client = await chromadb.AsyncHttpClient(
@@ -75,4 +76,14 @@ async def add_documents(
         return True
     except Exception as e:
         logger.error(f"ChromaDB add failed: {e}")
+        return False
+
+
+async def delete_documents_by_doc_id(doc_id: str) -> bool:
+    try:
+        collection = await get_collection()
+        await collection.delete(where={"doc_id": doc_id})
+        return True
+    except Exception as e:
+        logger.error(f"ChromaDB delete failed: {e}")
         return False

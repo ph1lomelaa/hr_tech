@@ -69,9 +69,11 @@ async def get_employee_goals(
     year: int | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(Goal).options(selectinload(Goal.evaluation)).where(
-        Goal.employee_id == employee_id
-    )
+    query = select(Goal).options(
+        selectinload(Goal.evaluation),
+        selectinload(Goal.employee).selectinload(Employee.position),
+        selectinload(Goal.employee).selectinload(Employee.department),
+    ).where(Goal.employee_id == employee_id)
     if quarter:
         query = query.where(Goal.quarter == quarter)
     if year:
@@ -80,22 +82,53 @@ async def get_employee_goals(
     result = await db.execute(query)
     goals = result.scalars().all()
 
-    return [
-        {
-            "id": str(g.id),
-            "title": g.title,
-            "goal_text": g.goal_text,
-            "metric": g.metric,
-            "deadline": g.deadline.isoformat() if g.deadline else None,
-            "weight": g.weight,
-            "status": g.status,
-            "quarter": g.quarter,
-            "year": g.year,
-            "smart_index": g.evaluation.smart_index if g.evaluation else None,
-            "goal_type": g.evaluation.goal_type if g.evaluation else None,
-        }
-        for g in goals
-    ]
+    payload = []
+    for g in goals:
+        emp = g.employee
+        ev = g.evaluation
+        payload.append(
+            {
+                "id": str(g.id),
+                "employee_id": str(g.employee_id),
+                "employee_name": emp.full_name if emp else None,
+                "position": (
+                    (emp.position.name if emp and emp.position else None)
+                    or g.position
+                    or "Сотрудник"
+                ),
+                "department": emp.department.name if emp and emp.department else None,
+                "title": g.title,
+                "goal_text": g.goal_text or g.description or g.title,
+                "metric": g.metric,
+                "deadline": g.deadline.isoformat() if g.deadline else None,
+                "weight": g.weight,
+                "status": g.status,
+                "reviewer_comment": g.reviewer_comment,
+                "quarter": g.quarter,
+                "year": g.year,
+                "created_at": g.created_at.isoformat() if g.created_at else None,
+                # AI-оценка
+                "smart_index": ev.smart_index if ev else None,
+                "scores": (
+                    {
+                        "S": ev.score_s,
+                        "M": ev.score_m,
+                        "A": ev.score_a,
+                        "R": ev.score_r,
+                        "T": ev.score_t,
+                    }
+                    if ev
+                    else None
+                ),
+                "goal_type": ev.goal_type if ev else None,
+                "alignment_level": ev.alignment_level if ev else None,
+                "alignment_source": ev.alignment_source if ev else None,
+                "recommendations": ev.recommendations if ev else [],
+                "rewrite": ev.rewrite if ev else None,
+                "weak_criteria": ev.weak_criteria if ev else [],
+            }
+        )
+    return payload
 
 
 @router.get("/{employee_id}/manager-goals")

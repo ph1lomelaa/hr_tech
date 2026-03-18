@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Link, Outlet, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   Target,
@@ -9,18 +9,15 @@ import {
   BarChart3,
   ChevronLeft,
   ChevronRight,
-  Search,
   Bell,
-  Zap,
   Moon,
   Sun,
-  UserCheck,
   MessageSquare,
   LogOut,
 } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Input } from "@/components/ui/input";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,41 +27,56 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useRole } from "@/context/RoleContext";
-import { employeeAlerts, hrAlerts } from "@/data/mockAlerts";
-import { managerAlerts } from "@/data/mockManager";
 import { useTheme } from "@/context/ThemeContext";
+import { api } from "@/lib/api";
+import { useCurrentEmployee } from "@/hooks/use-current-employee";
 import type { Role } from "@/context/RoleContext";
+import IdentitySwitcher from "@/components/IdentitySwitcher";
 
-const hrNavItems = [
-  { icon: LayoutDashboard, label: "Дашборд", path: "/hr" },
-  { icon: Target, label: "Цели", path: "/hr/goals" },
-  { icon: Sparkles, label: "AI Генерация", path: "/hr/generate" },
-  { icon: FileText, label: "Нормативная база", path: "/hr/documents" },
-  { icon: Users, label: "Сотрудники", path: "/hr/employees" },
-  { icon: BarChart3, label: "Аналитика", path: "/hr/analytics" },
+const hrNavGroups = [
+  [
+    { icon: BarChart3, label: "Аналитика", path: "/hr/analytics" },
+    { icon: LayoutDashboard, label: "Дашборд", path: "/hr" },
+  ],
+  [
+    { icon: Target, label: "Цели", path: "/hr/goals" },
+    { icon: Sparkles, label: "AI Генерация", path: "/hr/generate" },
+  ],
+  [
+    { icon: FileText, label: "Нормативная база", path: "/hr/documents" },
+    { icon: Users, label: "Сотрудники", path: "/hr/employees" },
+  ],
 ];
 
-const managerNavItems = [
-  { icon: LayoutDashboard, label: "Дашборд", path: "/manager" },
-  { icon: Users, label: "Цели команды", path: "/manager/team-goals" },
-  { icon: Target, label: "Мои цели", path: "/manager/my-goals" },
-  { icon: Sparkles, label: "AI Генерация", path: "/manager/generate" },
-  { icon: FileText, label: "Нормативная база", path: "/manager/documents" },
+const managerNavGroups = [
+  [
+    { icon: LayoutDashboard, label: "Дашборд", path: "/manager" },
+  ],
+  [
+    { icon: Users, label: "Цели команды", path: "/manager/team-goals" },
+    { icon: Target, label: "Мои цели", path: "/manager/my-goals" },
+    { icon: Sparkles, label: "AI Генерация", path: "/manager/generate" },
+  ],
+  [
+    { icon: Users, label: "Сотрудники", path: "/manager/employees" },
+    { icon: MessageSquare, label: "Обратная связь", path: "/manager/feedback" },
+    { icon: FileText, label: "Нормативная база", path: "/manager/documents" },
+  ],
 ];
 
-const employeeNavItems = [
-  { icon: LayoutDashboard, label: "Обзор", path: "/employee" },
-  { icon: Target, label: "Мои цели", path: "/employee/goals" },
-  { icon: Sparkles, label: "AI Подбор целей", path: "/employee/generate" },
-  { icon: FileText, label: "Нормативная база", path: "/employee/documents" },
-  { icon: MessageSquare, label: "Обратная связь", path: "/employee/feedback" },
+const employeeNavGroups = [
+  [
+    { icon: LayoutDashboard, label: "Обзор", path: "/employee" },
+  ],
+  [
+    { icon: Target, label: "Мои цели", path: "/employee/goals" },
+    { icon: Sparkles, label: "AI Подбор целей", path: "/employee/generate" },
+  ],
+  [
+    { icon: FileText, label: "Нормативная база", path: "/employee/documents" },
+    { icon: MessageSquare, label: "Обратная связь", path: "/employee/feedback" },
+  ],
 ];
-
-const roleColors: Record<Role, string> = {
-  hr: "bg-emerald-500",
-  manager: "bg-violet-500",
-  employee: "bg-blue-500",
-};
 
 const roleHomePaths: Record<Role, string> = {
   hr: "/hr",
@@ -72,104 +84,128 @@ const roleHomePaths: Record<Role, string> = {
   employee: "/employee",
 };
 
+function roleFromPath(pathname: string): Role | null {
+  if (pathname.startsWith("/employee")) return "employee";
+  if (pathname.startsWith("/manager")) return "manager";
+  if (pathname.startsWith("/hr")) return "hr";
+  return null;
+}
+
 export default function DashboardLayout({ children }: { children?: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
-  const navigate = useNavigate();
-  const { role, setRole, profile } = useRole();
+  const { role, setRole } = useRole();
   const { theme, toggleTheme } = useTheme();
+  const { employeeId } = useCurrentEmployee();
 
-  const navItems =
-    role === "employee" ? employeeNavItems :
-    role === "manager" ? managerNavItems :
-    hrNavItems;
+  const navGroups =
+    role === "employee" ? employeeNavGroups :
+    role === "manager" ? managerNavGroups :
+    hrNavGroups;
 
-  const alerts = useMemo(() =>
-    role === "employee" ? employeeAlerts :
-    role === "manager" ? managerAlerts :
-    hrAlerts,
-    [role]
-  );
-  const activeAlertCount = alerts.length;
+  const alertsQuery = useQuery({
+    queryKey: ["alerts", role, employeeId],
+    queryFn: () => api.employees.alerts(employeeId!),
+    enabled: role !== "hr" && !!employeeId,
+    staleTime: 30_000,
+  });
 
-  const handleRoleChange = (value: string) => {
-    const nextRole = value as Role;
-    if (nextRole === role) return;
-    setRole(nextRole);
-    navigate(roleHomePaths[nextRole]);
+  const alerts = useMemo(() => {
+    if (role === "hr") return [];
+    const raw = alertsQuery.data ?? [];
+    const titleMap: Record<string, string> = {
+      low_smart: "Низкий SMART",
+      duplicate: "Возможный дубликат",
+      weight_mismatch: "Сумма весов",
+      too_few_goals: "Мало целей",
+      too_many_goals: "Слишком много целей",
+    };
+    return raw.map((a) => ({
+      id: a.id,
+      severity: a.severity === "critical" ? "high" : "medium",
+      title: titleMap[a.alert_type] ?? a.alert_type.replace(/_/g, " "),
+      description: a.message,
+    }));
+  }, [alertsQuery.data, role]);
+
+  const activeAlertCount = (alertsQuery.data ?? []).filter((a) => !a.is_read).length;
+
+  const queryClient = useQueryClient();
+  const markReadMutation = useMutation({
+    mutationFn: (alertId: string) => api.employees.markAlertRead(employeeId!, alertId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["alerts", role, employeeId] }),
+  });
+
+  const handleNotificationsOpen = (open: boolean) => {
+    if (!open || !employeeId) return;
+    const unread = (alertsQuery.data ?? []).filter((a) => !a.is_read);
+    unread.forEach((a) => markReadMutation.mutate(a.id));
   };
 
-  // Redirect if on wrong role's pages
+  // Keep role context in sync with URL to avoid role switch race conditions.
   useEffect(() => {
-    const path = location.pathname;
-    if (role === "employee" && !path.startsWith("/employee")) {
-      navigate("/employee");
-    } else if (role === "manager" && !path.startsWith("/manager")) {
-      navigate("/manager");
-    } else if (role === "hr" && (path.startsWith("/employee") || path.startsWith("/manager"))) {
-      navigate("/hr");
+    const urlRole = roleFromPath(location.pathname);
+    if (urlRole && urlRole !== role) {
+      setRole(urlRole);
     }
-  }, [role, location.pathname, navigate]);
+  }, [location.pathname, role, setRole]);
 
   const content = children ?? <Outlet />;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="app-shell flex h-screen overflow-hidden">
+      <div className="app-shell-grid" />
       {/* Sidebar */}
       <aside
-        className={`flex flex-col bg-sidebar border-r border-sidebar-border transition-all duration-300 ${
+        className={`app-sidebar relative z-10 flex flex-col transition-all duration-300 ${
           collapsed ? "w-16" : "w-64"
         }`}
       >
-        {/* Logo */}
-        <div className="flex items-center gap-3 px-4 h-16 border-b border-sidebar-border">
-          <Link to={roleHomePaths[role]} className="flex items-center gap-3">
-            <div className={`flex items-center justify-center w-8 h-8 rounded-lg ${roleColors[role]}`}>
-              <Zap className="w-4 h-4 text-white" />
-            </div>
-            {!collapsed && (
-              <span className="text-lg font-bold text-sidebar-accent-foreground tracking-tight">
-                GoalAI
-              </span>
-            )}
-          </Link>
+        <div
+          className={cn(
+            "flex h-16 border-b border-sidebar-border px-4",
+            collapsed ? "items-center justify-center" : "items-center",
+          )}
+        >
+          <Link to={roleHomePaths[role]} className="block h-full w-full" aria-label="На главную" />
         </div>
 
-        {/* Role badge */}
-        {!collapsed && (
-          <div className="px-4 py-3 border-b border-sidebar-border">
-            <div className={`text-xs font-medium px-2 py-1 rounded-md inline-flex items-center gap-1.5 ${
-              role === "hr" ? "bg-emerald-500/10 text-emerald-600" :
-              role === "manager" ? "bg-violet-500/10 text-violet-600" :
-              "bg-blue-500/10 text-blue-600"
-            }`}>
-              <UserCheck className="w-3 h-3" />
-              {profile.label}
-            </div>
-          </div>
-        )}
 
         {/* Nav */}
-        <nav className="flex-1 py-4 px-2 space-y-1">
-          {navItems.map((item) => {
-            const active = location.pathname === item.path ||
-              (item.path !== "/hr" && item.path !== "/manager" && item.path !== "/employee" &&
-               location.pathname.startsWith(item.path));
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  active
-                    ? "bg-sidebar-accent text-primary"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                }`}
-              >
-                <item.icon className="w-5 h-5 shrink-0" />
-                {!collapsed && <span>{item.label}</span>}
-              </Link>
-            );
-          })}
+        <nav className="flex-1 py-4 px-2 overflow-y-auto">
+          {navGroups.map((group, gi) => (
+            <div key={gi}>
+              {gi > 0 && (
+                <div className="h-px bg-sidebar-border/40 my-2 mx-1" />
+              )}
+              <div className="space-y-0.5">
+                {group.map((item) => {
+                  const active = location.pathname === item.path ||
+                    (item.path !== "/hr" && item.path !== "/manager" && item.path !== "/employee" &&
+                    location.pathname.startsWith(item.path));
+                  return (
+                    <Link
+                      key={item.path}
+                      to={item.path}
+                      className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                        active
+                          ? "bg-sidebar-accent text-primary"
+                          : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+                      }`}
+                    >
+                      {active && (
+                        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full bg-primary" />
+                      )}
+                      <item.icon className="w-5 h-5 shrink-0" />
+                      {!collapsed && (
+                        <span className="transition-opacity duration-200">{item.label}</span>
+                      )}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
 
         {/* Collapse toggle */}
@@ -184,44 +220,18 @@ export default function DashboardLayout({ children }: { children?: React.ReactNo
       </aside>
 
       {/* Main */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="app-main flex-1 flex flex-col overflow-hidden transition-all duration-300">
         {/* Top bar */}
-        <header className="flex items-center justify-between h-16 px-6 border-b border-border bg-card/70 backdrop-blur-sm">
-          <div className="relative w-80 hidden md:block">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Поиск целей, сотрудников..."
-              className="pl-9 bg-muted/50 border-transparent focus:border-primary"
-            />
-          </div>
+        <header className="app-topbar flex items-center justify-end gap-4 h-16 px-5 xl:px-6">
           <div className="flex items-center gap-3">
-            {/* Role switcher — 3 buttons */}
-            <div className="hidden sm:flex items-center gap-1 bg-muted/50 rounded-lg p-1">
-              {(["hr", "manager", "employee"] as Role[]).map((r) => (
-                <button
-                  key={r}
-                  onClick={() => handleRoleChange(r)}
-                  className={`text-xs px-3 py-1.5 rounded-md font-medium transition-all ${
-                    role === r
-                      ? `${roleColors[r]} text-white shadow-sm`
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {r === "hr" ? "HR" : r === "manager" ? "Менеджер" : "Сотрудник"}
-                </button>
-              ))}
-            </div>
+            <IdentitySwitcher />
 
-            <button
-              onClick={toggleTheme}
-              className="p-2 rounded-lg border border-border bg-muted/40 hover:bg-muted transition-colors"
-              aria-label="Переключить тему"
-            >
+            <button onClick={toggleTheme} className="p-2 rounded-lg border border-border/55 bg-muted/40 hover:bg-muted transition-colors" aria-label="Переключить тему">
               {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
 
             {/* Notifications */}
-            <DropdownMenu>
+            <DropdownMenu onOpenChange={handleNotificationsOpen}>
               <DropdownMenuTrigger asChild>
                 <button className="relative p-2 rounded-lg hover:bg-muted transition-colors">
                   <Bell className="w-5 h-5 text-muted-foreground" />
@@ -260,37 +270,21 @@ export default function DashboardLayout({ children }: { children?: React.ReactNo
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* User */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-3 hover:bg-muted rounded-lg px-2 py-1 transition-colors">
-                  <Avatar className="w-8 h-8">
-                    <AvatarFallback className={`text-white text-xs font-semibold ${roleColors[role]}`}>
-                      {profile.initials}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="hidden md:block text-left">
-                    <p className="text-sm font-medium">{profile.name}</p>
-                    <p className="text-xs text-muted-foreground">{profile.title}</p>
-                  </div>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuLabel className="text-xs text-muted-foreground">{profile.label}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <Link to="/" className="flex items-center gap-2 cursor-pointer">
-                    <LogOut className="w-4 h-4" />
-                    На главную
-                  </Link>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {/* Home link */}
+            <Link
+              to="/"
+              className="p-2 rounded-lg border border-border/55 bg-muted/40 hover:bg-muted transition-colors"
+              aria-label="На главную"
+            >
+              <LogOut className="w-4 h-4 text-muted-foreground" />
+            </Link>
           </div>
         </header>
 
-        {/* Content */}
-        <main className="flex-1 overflow-auto p-6">{content}</main>
+      {/* Content */}
+      <main className="flex-1 overflow-auto">
+        <div className="mx-auto max-w-[86rem] px-5 py-6 xl:px-6">{content}</div>
+      </main>
       </div>
     </div>
   );

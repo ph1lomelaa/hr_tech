@@ -1,9 +1,8 @@
-from uuid import UUID
 from pydantic import BaseModel
 
 
 class DepartmentMaturityResponse(BaseModel):
-    department_id: UUID
+    department_id: int
     department_name: str
     quarter: str
     year: int
@@ -11,8 +10,9 @@ class DepartmentMaturityResponse(BaseModel):
     avg_smart: float
     strategic_percent: float
     total_goals: int
-    weak_criteria: dict[str, float]       # {"S": 0.71, "M": 0.55}
-    goal_type_dist: dict[str, int]        # {"activity": 5, "output": 8, "impact": 3}
+    weak_criteria: dict[str, float]    
+    goal_type_dist: dict[str, int]     
+    alignment_dist: dict[str, int]  
     recommendations: list[str]
 
 
@@ -23,11 +23,12 @@ class CompanyDashboardResponse(BaseModel):
     total_goals: int
     avg_smart_company: float
     strategic_percent: float
+    alignment_dist: dict[str, int]
     departments: list[DepartmentMaturityResponse]
 
 
 class AlertResponse(BaseModel):
-    id: UUID
+    id: str
     alert_type: str
     severity: str
     message: str

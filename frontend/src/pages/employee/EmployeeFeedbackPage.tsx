@@ -1,169 +1,206 @@
 import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { myFeedback, myGoals } from "@/data/mockEmployee";
-import { CheckCircle, MessageSquare, Wand2 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Bell, CheckCircle2, AlertTriangle, XCircle, Info, ChevronDown, ChevronUp } from "lucide-react";
+import { api, type AlertItem } from "@/lib/api";
+import { useCurrentEmployee } from "@/hooks/use-current-employee";
+import { getCurrentQuarterYear } from "@/lib/date";
+import { Link } from "react-router-dom";
 
-const verdictConfig: Record<string, { className: string }> = {
-  "Нужна доработка": { className: "bg-destructive/10 text-destructive" },
-  "Одобрено": { className: "bg-success/10 text-success" },
-  "Комментарий": { className: "bg-info/10 text-info" },
+const SEVERITY_CFG = {
+  critical: { icon: XCircle,       cls: "text-destructive bg-destructive/5 border-destructive/20" },
+  warning:  { icon: AlertTriangle, cls: "text-warning  bg-warning/5  border-warning/20"  },
 };
 
+const ALERT_LABELS: Record<string, string> = {
+  low_smart:          "Низкий SMART-индекс",
+  alignment_gap:      "Нет стратегической связки",
+  too_few_goals:      "Мало целей",
+  too_many_goals:     "Много целей",
+  weight_mismatch:    "Сумма весов ≠ 100%",
+  duplicate:          "Возможное дублирование",
+  duplicate_goal:     "Возможное дублирование",
+  achievability_risk: "Риск недостижимости",
+  goal_rejected:      "Цель отклонена",
+};
+
+const ALERTS_PREVIEW = 3;
+
 export default function EmployeeFeedbackPage() {
-  const [replies, setReplies] = useState<Record<string, string>>({});
-  const [replySent, setReplySent] = useState<Record<string, boolean>>({});
-  const [rewriteMode, setRewriteMode] = useState<Record<string, boolean>>({});
-  const [rewriteText, setRewriteText] = useState<Record<string, string>>({});
-  const [rewriteSent, setRewriteSent] = useState<Record<string, boolean>>({});
+  const qc = useQueryClient();
+  const { employeeId } = useCurrentEmployee();
+  const { quarter, year } = getCurrentQuarterYear();
+  const [alertsExpanded, setAlertsExpanded] = useState(false);
+  const [markingRead, setMarkingRead] = useState(false);
 
-  const goalTextMap = Object.fromEntries(myGoals.map((g) => [g.id, g.text]));
+  const { data: alerts = [], isLoading: alertsLoading } = useQuery({
+    queryKey: ["employee-alerts", employeeId],
+    queryFn: () => api.employees.alerts(employeeId!),
+    enabled: !!employeeId,
+    staleTime: 30_000,
+  });
 
-  const sendReply = (id: string) => {
-    if (!replies[id]?.trim()) return;
-    setReplySent((prev) => ({ ...prev, [id]: true }));
-  };
+  const { data: goals = [], isLoading: goalsLoading } = useQuery({
+    queryKey: ["employee-goals", employeeId, quarter, year],
+    queryFn: () => api.employees.goals(employeeId!, { quarter, year }),
+    enabled: !!employeeId,
+    staleTime: 30_000,
+  });
 
-  const sendRewrite = (id: string) => {
-    if (!rewriteText[id]?.trim()) return;
-    setRewriteSent((prev) => ({ ...prev, [id]: true }));
-    setRewriteMode((prev) => ({ ...prev, [id]: false }));
-  };
+  const unread = alerts.filter((a) => !a.is_read);
+
+  async function markAllRead() {
+    if (!employeeId || unread.length === 0 || markingRead) return;
+    setMarkingRead(true);
+    try {
+      await Promise.all(unread.map((a) => api.employees.markAlertRead(employeeId, a.id)));
+      qc.invalidateQueries({ queryKey: ["employee-alerts", employeeId] });
+      qc.invalidateQueries({ queryKey: ["alerts"] });
+    } finally {
+      setMarkingRead(false);
+    }
+  }
+
+  function handleExpand() {
+    setAlertsExpanded(true);
+    markAllRead();
+  }
+
+  const rejectedGoals = goals.filter((g) => g.status === "rejected");
+  const isLoading = alertsLoading || goalsLoading;
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Обратная связь</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Комментарии руководителя и запросы на доработку целей
+        <p className="text-xs text-muted-foreground mt-1">
+          Уведомления AI-системы и комментарии руководителя по целям
         </p>
       </div>
 
-      {myFeedback.length === 0 && (
-        <div className="glass-card p-10 text-center text-muted-foreground text-sm">
-          Нет комментариев по вашим целям
+      {!isLoading && (
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { label: "Всего уведомлений", value: alerts.length },
+            { label: "Непрочитанных",     value: unread.length,       highlight: unread.length > 0 },
+            { label: "Отклонённых целей", value: rejectedGoals.length, highlight: rejectedGoals.length > 0 },
+          ].map((s) => (
+            <div key={s.label} className="glass-card-elevated p-4">
+              <p className="text-xs text-muted-foreground">{s.label}</p>
+              <p className={`text-2xl font-bold mt-1 ${s.highlight ? "text-warning" : ""}`}>{s.value}</p>
+            </div>
+          ))}
         </div>
       )}
 
-      <div className="space-y-4">
-        {myFeedback.map((item) => {
-          const goalText = goalTextMap[item.goalId];
-          const verdictStyle = verdictConfig[item.verdict] ?? verdictConfig["Комментарий"];
-
-          return (
-            <div key={item.id} className="glass-card p-5 space-y-4">
-              {/* Header */}
-              <div className="flex items-start justify-between gap-4">
-                <div className="space-y-1 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Badge variant="outline" className={`text-xs ${verdictStyle.className}`}>
-                      {item.verdict}
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">{item.date}</span>
-                  </div>
-                  {/* Goal text (not raw ID) */}
-                  {goalText ? (
-                    <p className="text-xs text-muted-foreground bg-muted/40 rounded-md px-3 py-2 mt-2 italic">
-                      «{goalText}»
-                    </p>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">Цель: {item.goalId}</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Reviewer comment */}
-              <div className="border-l-2 border-primary/30 pl-3">
-                <p className="text-xs text-muted-foreground mb-1">
-                  <span className="font-medium text-foreground/70">{item.reviewer}</span> пишет:
-                </p>
-                <p className="text-sm text-muted-foreground">{item.comment}</p>
-              </div>
-
-              {/* Rewrite result */}
-              {rewriteSent[item.id] && (
-                <div className="bg-success/5 border border-success/20 rounded-lg p-3 text-xs text-success flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 shrink-0" />
-                  Переформулировка отправлена на повторное согласование
-                </div>
-              )}
-
-              {/* Reply sent */}
-              {replySent[item.id] && (
-                <div className="bg-success/5 border border-success/20 rounded-lg p-3 text-xs text-success flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 shrink-0" />
-                  Ответ отправлен руководителю
-                </div>
-              )}
-
-              {/* Rewrite form */}
-              {rewriteMode[item.id] && !rewriteSent[item.id] && (
-                <div className="space-y-2 animate-fade-in">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    Новая формулировка цели:
-                  </label>
-                  <Textarea
-                    rows={2}
-                    placeholder="Введите переформулированную цель..."
-                    defaultValue={goalText ?? ""}
-                    value={rewriteText[item.id] ?? goalText ?? ""}
-                    onChange={(e) => setRewriteText((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                  />
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() => sendRewrite(item.id)}
-                      disabled={!rewriteText[item.id]?.trim()}
-                    >
-                      Отправить на согласование
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setRewriteMode((prev) => ({ ...prev, [item.id]: false }))}
-                    >
-                      Отмена
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {/* Reply form */}
-              {!replySent[item.id] && !rewriteMode[item.id] && !rewriteSent[item.id] && (
-                <div className="space-y-2">
-                  <Textarea
-                    rows={2}
-                    placeholder="Ваш ответ руководителю..."
-                    value={replies[item.id] ?? ""}
-                    onChange={(e) => setReplies((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                  />
-                  <div className="flex gap-2 flex-wrap">
-                    <Button
-                      size="sm"
-                      className="gap-1"
-                      onClick={() => sendReply(item.id)}
-                      disabled={!replies[item.id]?.trim()}
-                    >
-                      <MessageSquare className="w-3 h-3" /> Ответить
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-1"
-                      onClick={() => {
-                        setRewriteText((prev) => ({ ...prev, [item.id]: goalText ?? "" }));
-                        setRewriteMode((prev) => ({ ...prev, [item.id]: true }));
-                      }}
-                    >
-                      <Wand2 className="w-3 h-3" /> Переформулировать
-                    </Button>
-                  </div>
-                </div>
-              )}
+      {(isLoading || rejectedGoals.length > 0) && (
+        <div className="glass-card-elevated p-5 space-y-3">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <XCircle className="w-4 h-4 text-destructive" /> Отклонённые цели
+          </h3>
+          {goalsLoading ? (
+            <Skeleton className="h-16 w-full" />
+          ) : (
+            <div className="space-y-2">
+              {rejectedGoals.map((g) => (
+                <Link
+                  key={g.id}
+                  to={`/employee/goals/${g.id}`}
+                  className="block rounded-lg border border-destructive/20 bg-destructive/5 p-3 hover:bg-destructive/10 transition-colors"
+                >
+                  <p className="text-sm font-medium text-destructive line-clamp-2">
+                    {g.goal_text ?? g.title}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground/60 mt-1">{g.quarter} {g.year}</p>
+                </Link>
+              ))}
             </div>
-          );
-        })}
+          )}
+        </div>
+      )}
+
+      <div className="glass-card-elevated p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <Bell className="w-4 h-4 text-primary" /> Уведомления AI-системы
+            {alerts.length > 0 && <span className="text-xs font-normal text-muted-foreground">({alerts.length})</span>}
+          </h3>
+          <div className="flex items-center gap-2">
+            {unread.length > 0 && (
+              <button
+                onClick={markAllRead}
+                disabled={markingRead}
+                className="text-[10px] text-primary underline disabled:opacity-50"
+              >
+                Прочитать все
+              </button>
+            )}
+            {alerts.length > ALERTS_PREVIEW && (
+              <button
+                onClick={alertsExpanded ? () => setAlertsExpanded(false) : handleExpand}
+                className="text-xs text-primary flex items-center gap-1 hover:underline"
+              >
+                {alertsExpanded
+                  ? <><ChevronUp className="w-3 h-3" /> Свернуть</>
+                  : <><ChevronDown className="w-3 h-3" /> Ещё {alerts.length - ALERTS_PREVIEW}</>}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {alertsLoading ? (
+          <div className="space-y-2">
+            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-14 w-full" />)}
+          </div>
+        ) : alerts.length === 0 ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+            <CheckCircle2 className="w-4 h-4 text-success" />
+            Уведомлений нет — набор целей в порядке
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {(alertsExpanded ? alerts : alerts.slice(0, ALERTS_PREVIEW)).map((alert: AlertItem) => {
+              const cfg = SEVERITY_CFG[alert.severity] ?? SEVERITY_CFG.warning;
+              const Icon = cfg.icon;
+              return (
+                <div
+                  key={alert.id}
+                  className={`flex items-start gap-3 rounded-lg border p-3 transition-colors ${cfg.cls} ${
+                    !alert.is_read ? "ring-1 ring-primary/20" : "opacity-70"
+                  }`}
+                >
+                  <Icon className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-semibold">
+                        {ALERT_LABELS[alert.alert_type] ?? alert.alert_type}
+                      </span>
+                      {!alert.is_read && (
+                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-primary/10 text-primary border-primary/20">
+                          Новое
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs mt-0.5">{alert.message}</p>
+                    {alert.created_at && (
+                      <p className="text-[10px] text-muted-foreground/60 mt-1">
+                        {new Date(alert.created_at).toLocaleDateString("ru-RU", {
+                          day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+                        })}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4 text-sm text-muted-foreground">
+        <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+        <span>Уведомления генерирует AI-система при обнаружении проблем с набором целей: низкий SMART-индекс, отсутствие стратегической связки, неверная сумма весов и возможные дублирования.</span>
       </div>
     </div>
   );

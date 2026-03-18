@@ -1,3 +1,5 @@
+import { getCurrentQuarterYear, quarterEndDate } from "@/lib/date";
+
 export type SmartEvalResult = {
   smartIndex: number;
   scores: { key: string; label: string; value: number }[];
@@ -40,21 +42,27 @@ export function evaluateSmart(text: string): SmartEvalResult {
     suggestedMetric = "Добавьте числовой KPI (%, количество, срок)";
   }
 
+  const { quarter: currentQuarter, year: currentYear } = getCurrentQuarterYear();
+
   // Suggest deadline
   const datePatterns = [
     text.match(/к\s+(\d{1,2}[.\s]\d{2}[.\s]\d{4})/),
     text.match(/(\d{4}-\d{2}-\d{2})/),
-    text.match(/к\s+(концу|Q[1-4])\s+(\d{4})/),
+    text.match(/(Q[1-4])\s*(\d{4})?/i),
   ];
   const foundDate = datePatterns.find(Boolean);
-  let suggestedDeadline = "2026-06-30";
+  let suggestedDeadline = quarterEndDate(currentQuarter, currentYear);
+
   if (foundDate) {
-    const raw = foundDate[1] ?? "";
-    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) suggestedDeadline = raw;
-    else if (/Q1/.test(raw)) suggestedDeadline = "2026-03-31";
-    else if (/Q2/.test(raw)) suggestedDeadline = "2026-06-30";
-    else if (/Q3/.test(raw)) suggestedDeadline = "2026-09-30";
-    else if (/Q4/.test(raw)) suggestedDeadline = "2026-12-31";
+    const rawQuarter = foundDate[1] ?? "";
+    const rawYear = foundDate[2] ?? "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(rawQuarter)) {
+      suggestedDeadline = rawQuarter;
+    } else if (/Q[1-4]/i.test(rawQuarter)) {
+      const q = rawQuarter.toUpperCase() as "Q1" | "Q2" | "Q3" | "Q4";
+      const y = parseInt(rawYear, 10) || currentYear;
+      suggestedDeadline = quarterEndDate(q, y);
+    }
   }
 
   const weakCriteria: string[] = [];

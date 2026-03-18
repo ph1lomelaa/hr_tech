@@ -24,9 +24,23 @@ import ManagerTeamGoalsPage from "./pages/manager/ManagerTeamGoalsPage";
 import ManagerMyGoalsPage from "./pages/manager/ManagerMyGoalsPage";
 import ManagerGeneratePage from "./pages/manager/ManagerGeneratePage";
 import ManagerDocumentsPage from "./pages/manager/ManagerDocumentsPage";
+import ManagerFeedbackPage from "./pages/manager/ManagerFeedbackPage";
+import ManagerEmployeesPage from "./pages/manager/ManagerEmployeesPage";
 import NotFound from "./pages/NotFound";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 15_000,
+      gcTime: 10 * 60_000,
+      refetchOnWindowFocus: true,
+      retry: 1,
+    },
+    mutations: {
+      retry: 0,
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -51,10 +65,12 @@ const App = () => (
                 {/* Manager routes */}
                 <Route path="/manager" element={<ManagerDashboard />} />
                 <Route path="/manager/team-goals" element={<ManagerTeamGoalsPage />} />
-                <Route path="/manager/team-goals/:goalId" element={<ManagerTeamGoalsPage />} />
+                <Route path="/manager/team-goals/:goalId" element={<GoalDetailPage />} />
                 <Route path="/manager/my-goals" element={<ManagerMyGoalsPage />} />
                 <Route path="/manager/generate" element={<ManagerGeneratePage />} />
                 <Route path="/manager/documents" element={<ManagerDocumentsPage />} />
+                <Route path="/manager/feedback" element={<ManagerFeedbackPage />} />
+                <Route path="/manager/employees" element={<ManagerEmployeesPage />} />
 
                 {/* Employee routes */}
                 <Route path="/employee" element={<EmployeeDashboard />} />

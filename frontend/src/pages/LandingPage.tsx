@@ -1,163 +1,184 @@
-import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Badge } from "@/components/ui/badge";
-import { HeroSection } from "@/components/ui/hero-section-shadcnui";
-import { useRole } from "@/context/RoleContext";
-import { useTheme } from "@/context/ThemeContext";
 import { motion, type Variants } from "framer-motion";
 import {
+  ArrowRight,
+  Sparkles,
+  BarChart3,
+  Shield,
+  Target,
   Moon,
   Sun,
-  Sparkles,
-  Target,
-  LineChart,
-  Shield,
-  Zap,
-  ChevronDown,
 } from "lucide-react";
-import type { Role } from "@/context/RoleContext";
 
-const roleEntries = [
-  { role: "hr" as Role, label: "HR Директор", path: "/hr", dot: "bg-emerald-500" },
-  { role: "manager" as Role, label: "Руководитель", path: "/manager", dot: "bg-violet-500" },
-  { role: "employee" as Role, label: "Сотрудник", path: "/employee", dot: "bg-blue-500" },
-];
+import IdentitySwitcher from "@/components/IdentitySwitcher";
+import { useTheme } from "@/context/ThemeContext";
 
-const features = [
-  {
-    icon: Sparkles,
-    title: "SMART-оценка и AI рекомендации",
-    description: "Автоматическая проверка по 5 критериям, индикаторы слабых мест и предложение переформулировки.",
-  },
+const mvpBlocks = [
   {
     icon: Target,
-    title: "Генерация целей из ВНД",
-    description: "RAG-поиск по нормативной базе, цитирование источников, привязка к KPI и стратегии.",
+    title: "Цели с бизнес-связкой",
+    note: "Каждая цель получает источник из ВНД/KPI и уровень связки: strategic, functional или operational.",
   },
   {
-    icon: LineChart,
-    title: "Аналитика и дашборды",
-    description: "Индекс зрелости целеполагания по командам, динамика SMART, структура набора целей.",
+    icon: Sparkles,
+    title: "RAG + LLM конвейер",
+    note: "Документы индексируются, извлекаются релевантные фрагменты, затем модель генерирует и перепроверяет цели.",
   },
   {
     icon: Shield,
-    title: "Контроль и согласования",
-    description: "Флоу утверждения целей, версионирование, история изменений и уведомления.",
+    title: "Контроль качества набора",
+    note: "Система валидирует состав целей: 3–5 на период, суммарный вес 100%, дубликаты и достижимость.",
+  },
+  {
+    icon: BarChart3,
+    title: "Дашборд зрелости подразделения",
+    note: "Агрегация SMART-оценок, типов целей и уровня стратегической связки по командам и кварталам.",
   },
 ];
 
-const featureVariants: Variants = {
-  hidden: { opacity: 0, y: 20 },
+const heroVariants: Variants = {
+  hidden: { opacity: 0, y: 24 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } },
+};
+
+const subVariants: Variants = {
+  hidden: { opacity: 0, y: 16 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.55, ease: "easeOut", delay: 0.15 } },
+};
+
+const ctaVariants: Variants = {
+  hidden: { opacity: 0, y: 12 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut", delay: 0.28 } },
+};
+
+const cardVariants: Variants = {
+  hidden: { opacity: 0, y: 18 },
   visible: (i: number) => ({
     opacity: 1,
     y: 0,
-    transition: { duration: 0.45, ease: "easeOut", delay: i * 0.08 },
+    transition: { duration: 0.45, delay: 0.1 + i * 0.08, ease: "easeOut" },
   }),
 };
 
 export default function LandingPage() {
   const navigate = useNavigate();
-  const { setRole } = useRole();
   const { theme, toggleTheme } = useTheme();
-  const [menuOpen, setMenuOpen] = useState(false);
-
-  const enterAs = (entry: typeof roleEntries[0]) => {
-    setRole(entry.role);
-    navigate(entry.path);
-    setMenuOpen(false);
-  };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div
+      className="landing-shell min-h-screen"
+      style={{ fontFamily: '"Space Grotesk", "Manrope", system-ui, sans-serif' }}
+    >
+      <div className="landing-glow landing-glow-a" />
+      <div className="landing-glow landing-glow-b" />
+      <div className="landing-grid" />
+      <div className="landing-dots" />
+
       {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-md">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+      <header className="sticky top-0 z-40 border-b border-slate-900/08 bg-white/70 backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/70">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+          {/* Left: empty — logo removed */}
+          <div />
+
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center">
-              <Zap className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <div>
-              <p className="text-sm font-bold tracking-tight">GoalAI Platform</p>
-              <p className="text-[10px] text-muted-foreground leading-none mt-0.5">Performance Management</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <Badge variant="outline" className="text-xs hidden sm:flex">v1.0 · Хакатон 2026</Badge>
+            <span className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 sm:inline-flex">
+              MVP · Hackathon 2026
+            </span>
             <button
               onClick={toggleTheme}
-              className="p-2 rounded-lg border border-border bg-muted/40 hover:bg-muted transition-colors"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white/85 text-slate-600 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900/85 dark:text-slate-200 dark:hover:bg-slate-900"
+              aria-label="Переключить тему"
+              type="button"
             >
-              {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
-            <div className="relative">
-              <button
-                onClick={() => setMenuOpen((v) => !v)}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
-              >
-                Войти <ChevronDown className={`w-3.5 h-3.5 transition-transform ${menuOpen ? "rotate-180" : ""}`} />
-              </button>
-              {menuOpen && (
-                <div className="absolute right-0 mt-2 w-44 rounded-xl border border-border bg-background shadow-lg overflow-hidden z-50">
-                  {roleEntries.map((entry) => (
-                    <button
-                      key={entry.role}
-                      onClick={() => enterAs(entry)}
-                      className="w-full flex items-center gap-2.5 px-4 py-3 text-sm hover:bg-muted/60 transition-colors text-left"
-                    >
-                      <div className={`w-2 h-2 rounded-full shrink-0 ${entry.dot}`} />
-                      {entry.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <IdentitySwitcher variant="landing" />
           </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6">
-
-        {/* Hero — анимированный */}
-        <HeroSection />
-
-        {/* Features */}
-        <section className="space-y-6 py-16">
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5 }}
-            className="text-center space-y-2"
+      <main className="relative z-10 mx-auto max-w-6xl px-6">
+        <section className="pb-14 pt-16 md:pb-20 md:pt-24 text-center">
+          {/* Headline */}
+          <motion.h1
+            variants={heroVariants}
+            initial="hidden"
+            animate="visible"
+            className="mx-auto max-w-5xl text-balance text-[clamp(2.6rem,6.2vw,5rem)] font-bold leading-[1.04] tracking-[-0.035em]"
           >
-            <h2 className="text-2xl font-bold">Ключевые возможности</h2>
-            <p className="text-muted-foreground text-sm">AI-слой поверх системы управления целями</p>
+            <span className="text-slate-900 dark:text-slate-50">
+              Цели сотрудников,
+            </span>
+            <br />
+            <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-600 via-indigo-500 to-violet-500">
+              связанные со стратегией
+            </span>
+          </motion.h1>
+
+          <motion.p
+            variants={subVariants}
+            initial="hidden"
+            animate="visible"
+            className="mx-auto mt-8 max-w-2xl text-balance text-xl leading-relaxed text-slate-600 dark:text-slate-300 md:text-2xl"
+          >
+            GoalAI связывает цели сотрудников с ВНД и KPI в одном потоке: генерация, SMART-оценка, каскадирование и аналитика по подразделениям.
+          </motion.p>
+
+          <motion.div
+            variants={ctaVariants}
+            initial="hidden"
+            animate="visible"
+            className="mt-10 flex flex-wrap items-center justify-center gap-3"
+          >
+            <button
+              onClick={() => navigate("/hr")}
+              className="relative inline-flex items-center gap-2 rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 shadow-[0_4px_20px_rgba(30,50,120,0.22)] hover:shadow-[0_6px_28px_rgba(30,50,120,0.32)] dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-white"
+            >
+              Перейти в HR кабинет
+              <ArrowRight className="h-4 w-4" />
+            </button>
+            <IdentitySwitcher variant="landing" />
           </motion.div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {features.map((f, i) => (
-              <motion.div
-                key={f.title}
-                custom={i}
-                variants={featureVariants}
-                initial="hidden"
-                whileInView="visible"
-                viewport={{ once: true }}
-                className="glass-card p-6 flex gap-4"
-              >
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                  <f.icon className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <h3 className="font-semibold">{f.title}</h3>
-                  <p className="text-sm text-muted-foreground mt-1">{f.description}</p>
-                </div>
-              </motion.div>
-            ))}
+        </section>
+
+        <section id="landing-metrics" className="pb-14">
+          <div className="landing-panel p-5 md:p-8">
+            <div className="mb-5">
+              <h2 className="text-base font-medium tracking-wide text-slate-400">
+                Ключевые функции
+              </h2>
+            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {mvpBlocks.map((item, i) => (
+                <motion.article
+                  key={item.title}
+                  custom={i}
+                  variants={cardVariants}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true, amount: 0.3 }}
+                  whileHover={{ scale: 1.02, rotateX: -1, rotateY: 1 }}
+                  transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                  style={{ transformPerspective: 1000 }}
+                  className="landing-metric-card cursor-default"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="shrink-0 rounded-lg border border-blue-100 bg-blue-50 p-2 dark:border-sky-500/20 dark:bg-sky-500/10">
+                      <item.icon className="h-4 w-4 text-blue-500 dark:text-sky-300" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold tracking-[0.01em] text-slate-800 dark:text-slate-100 md:text-base">{item.title}</p>
+                      <p className="mt-2 text-[14px] leading-relaxed text-slate-500 dark:text-slate-300">{item.note}</p>
+                    </div>
+                  </div>
+                </motion.article>
+              ))}
+            </div>
           </div>
         </section>
 
-        {/* Footer */}
-        <footer className="text-center text-xs text-muted-foreground pb-10">
-          <p>GoalAI Platform · Хакатон «Внедрение ИИ в HR-процессы» 2026</p>
+        <footer className="pb-10 text-center text-xs tracking-[0.08em] text-slate-400 dark:text-slate-500">
+          GoalAI Platform · AI for Performance Management · 2026
         </footer>
       </main>
     </div>

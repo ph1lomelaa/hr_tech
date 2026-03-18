@@ -13,26 +13,24 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const { role } = useRole();
-  const storageKey = `goalai_theme_${role}`;
+  const storageKey = "goalai_theme";
   const [theme, setTheme] = useState<ThemeMode>(() => {
     if (typeof window === "undefined") return "dark";
-    const stored = window.localStorage.getItem(storageKey) as ThemeMode | null;
-    return stored === "light" || stored === "dark" ? stored : "dark";
+    try {
+      const stored = window.localStorage.getItem(storageKey) as ThemeMode | null;
+      return stored === "light" || stored === "dark" ? stored : "dark";
+    } catch {
+      return "dark";
+    }
   });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const stored = window.localStorage.getItem(storageKey) as ThemeMode | null;
-    if (stored === "light" || stored === "dark") {
-      setTheme(stored);
-    } else {
-      setTheme("dark");
+    try {
+      window.localStorage.setItem(storageKey, theme);
+    } catch {
+      // Ignore storage access errors.
     }
-  }, [storageKey]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(storageKey, theme);
   }, [storageKey, theme]);
 
   useEffect(() => {
@@ -42,6 +40,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     root.dataset.role = role;
     root.dataset.theme = theme;
   }, [role, theme]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    const id = window.requestAnimationFrame(() => {
+      root.classList.add("theme-ready");
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, []);
 
   const value = useMemo(
     () => ({

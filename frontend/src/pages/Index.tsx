@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { Target, Users, AlertTriangle, FileCheck, RefreshCw } from "lucide-react";
 import StatCard from "@/components/StatCard";
@@ -8,6 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, toGoalCard } from "@/lib/api";
+import { getCurrentQuarterYear, getYearOptions } from "@/lib/date";
+import { getTooltipStyle, CHART_GRID_COLOR, CHART_AXIS_COLOR } from "@/lib/chart-theme";
 import {
   BarChart,
   Bar,
@@ -19,11 +22,12 @@ import {
   PieChart,
   Pie,
   Cell,
-  Legend,
+  LabelList,
 } from "recharts";
 
 const QUARTERS = ["Q1", "Q2", "Q3", "Q4"];
-const YEARS = [2025, 2026, 2027];
+const { quarter: initialQuarter, year: initialYear } = getCurrentQuarterYear();
+const YEARS = getYearOptions(2, initialYear);
 
 const SMART_LABELS: Record<string, string> = {
   S: "Specific",
@@ -33,6 +37,14 @@ const SMART_LABELS: Record<string, string> = {
   T: "Time-bound",
 };
 
+const SMART_BAR_COLORS: Record<string, string> = {
+  S: "hsl(142,71%,45%)",
+  M: "hsl(210,100%,52%)",
+  A: "hsl(38,92%,50%)",
+  R: "hsl(280,65%,55%)",
+  T: "hsl(0,72%,51%)",
+};
+
 const STATUS_META: Record<string, { label: string; fill: string }> = {
   draft: { label: "Черновик", fill: "hsl(220,13%,82%)" },
   pending: { label: "На согласовании", fill: "hsl(45,90%,55%)" },
@@ -40,11 +52,14 @@ const STATUS_META: Record<string, { label: string; fill: string }> = {
   rejected: { label: "Отклонено", fill: "hsl(0,72%,55%)" },
 };
 
-export default function DashboardPage() {
-  const [quarter, setQuarter] = useState("Q1");
-  const [year, setYear] = useState(2026);
+const CHART_GRID = CHART_GRID_COLOR;
+const CHART_AXIS = CHART_AXIS_COLOR;
 
-  const { data: dashboard, isLoading: dashLoading, refetch } = useQuery({
+export default function DashboardPage() {
+  const [quarter, setQuarter] = useState(initialQuarter);
+  const [year, setYear] = useState(initialYear);
+
+  const { data: dashboard, isLoading: dashLoading, isError: dashError, refetch } = useQuery({
     queryKey: ["company-dashboard", quarter, year],
     queryFn: () => api.analytics.company(quarter, year),
   });
@@ -72,6 +87,7 @@ export default function DashboardPage() {
       // weak_criteria tracks weaknesses, so score = 1 - (share of weaknesses for this key)
       const weakShare = hits / total;
       return {
+        key: k,
         name: SMART_LABELS[k],
         value: parseFloat((1 - weakShare * 5 * 0.1).toFixed(2)),
       };
@@ -115,19 +131,29 @@ export default function DashboardPage() {
     })).filter((s) => s.value > 0);
   })();
 
+  if (dashError) {
+    return (
+      <div className="glass-card-elevated p-8 text-center space-y-3 max-w-lg mx-auto mt-12">
+        <p className="text-sm font-semibold text-destructive">Не удалось загрузить дашборд</p>
+        <p className="text-xs text-muted-foreground">Проверьте, что бэкенд запущен на порту 8002.</p>
+        <Button size="sm" variant="outline" onClick={() => refetch()}>Повторить</Button>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6 max-w-7xl">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Дашборд</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-xs text-muted-foreground mt-1">
             Обзор системы управления целями · {quarter} {year}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Select value={quarter} onValueChange={setQuarter}>
-            <SelectTrigger className="w-20 bg-muted/50 border-transparent">
+            <SelectTrigger className="w-20 control-surface">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -139,7 +165,7 @@ export default function DashboardPage() {
             </SelectContent>
           </Select>
           <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
-            <SelectTrigger className="w-24 bg-muted/50 border-transparent">
+            <SelectTrigger className="w-24 control-surface">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -157,90 +183,111 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {dashLoading ? (
-          Array.from({ length: 4 }).map((_, i) => (
+      {dashLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-28 rounded-xl" />
-          ))
-        ) : (
-          <>
-            <StatCard
-              icon={Target}
-              title="Всего целей"
-              value={String(dashboard?.total_goals ?? 0)}
-            />
-            <StatCard
-              icon={FileCheck}
-              title="Средний SMART"
-              value={(dashboard?.avg_smart_company ?? 0).toFixed(2)}
-              change={
-                (dashboard?.avg_smart_company ?? 0) >= 0.7
-                  ? "Хорошо"
-                  : "Требует улучшения"
-              }
-              changeType={
-                (dashboard?.avg_smart_company ?? 0) >= 0.7 ? "positive" : "negative"
-              }
-            />
-            <StatCard
-              icon={Users}
-              title="Сотрудников"
-              value={String(dashboard?.total_employees ?? 0)}
-              description={`${dashboard?.departments?.length ?? 0} подразделений`}
-            />
-            <StatCard
-              icon={AlertTriangle}
-              title="На согласовании"
-              value={String(pendingGoals.length)}
-              change="Ожидают проверки"
-              changeType={pendingGoals.length > 0 ? "negative" : "positive"}
-            />
-          </>
-        )}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <motion.div
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+          initial="hidden"
+          animate="visible"
+          variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.08 } } }}
+        >
+          {[
+            { icon: Target, title: "Всего целей", value: String(dashboard?.total_goals ?? 0) },
+            { icon: FileCheck, title: "Средний SMART", value: (dashboard?.avg_smart_company ?? 0).toFixed(2) },
+            { icon: Users, title: "Сотрудников", value: String(dashboard?.total_employees ?? 0) },
+            { icon: AlertTriangle, title: "На согласовании", value: String(pendingGoals.length) },
+          ].map(({ icon, title, value }) => (
+            <motion.div
+              key={title}
+              variants={{ hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } } }}
+            >
+              <StatCard icon={icon} title={title} value={value} />
+            </motion.div>
+          ))}
+        </motion.div>
+      )}
+
+      {/* Section divider */}
+      <div className="section-divider" />
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* SMART profile */}
-        <div className="glass-card p-5 lg:col-span-2 animate-fade-in">
+        <div className="glass-card-elevated p-5 lg:col-span-2 animate-fade-in">
           <h3 className="text-sm font-semibold mb-4">SMART-профиль компании</h3>
           {dashLoading ? (
             <Skeleton className="h-56 w-full" />
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={smartProfile} barGap={8}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(220,13%,90%)" />
-                <XAxis dataKey="name" tick={{ fontSize: 12 }} stroke="hsl(220,10%,46%)" />
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={smartProfile} barGap={8} margin={{ bottom: 24 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
+                <XAxis
+                  dataKey="key"
+                  tick={({ x, y, payload }) => {
+                    const color = SMART_BAR_COLORS[payload.value] ?? CHART_AXIS;
+                    const label = SMART_LABELS[payload.value] ?? payload.value;
+                    return (
+                      <g transform={`translate(${x},${y})`}>
+                        <rect x={-10} y={4} width={20} height={20} rx={4} fill={color} fillOpacity={0.18} />
+                        <text x={0} y={18} textAnchor="middle" fill={color} fontSize={11} fontWeight={700}>
+                          {payload.value}
+                        </text>
+                        <text x={0} y={38} textAnchor="middle" fill={CHART_AXIS} fontSize={10}>
+                          {label}
+                        </text>
+                      </g>
+                    );
+                  }}
+                  height={50}
+                  stroke="transparent"
+                />
                 <YAxis
-                  tick={{ fontSize: 12 }}
-                  stroke="hsl(220,10%,46%)"
+                  tick={{ fontSize: 11, fill: CHART_AXIS }}
+                  stroke={CHART_AXIS}
                   domain={[0, 1]}
                   tickFormatter={(v) => v.toFixed(1)}
                 />
                 <Tooltip
-                  contentStyle={{ borderRadius: 8, border: "1px solid hsl(220,13%,90%)", fontSize: 12 }}
+                  contentStyle={getTooltipStyle()}
+                  cursor={{ fill: "rgba(148,163,184,0.06)" }}
+                  wrapperStyle={{ outline: "none" }}
                   formatter={(v: number) => v.toFixed(2)}
                 />
                 <Bar
                   dataKey="value"
                   name="Средний балл"
-                  fill="hsl(152,60%,42%)"
-                  radius={[4, 4, 0, 0]}
-                />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
+                  radius={[6, 6, 0, 0]}
+                  isAnimationActive={true} animationDuration={800} animationEasing="ease-out"
+                  activeBar={false}
+                >
+                  {smartProfile.map((entry) => (
+                    <Cell key={entry.key} fill={SMART_BAR_COLORS[entry.key] ?? "hsl(217,91%,60%)"} />
+                  ))}
+                  <LabelList
+                    dataKey="value"
+                    position="top"
+                    formatter={(v: number) => v.toFixed(2)}
+                    style={{ fontSize: 11, fontWeight: 600, fill: CHART_AXIS }}
+                  />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           )}
         </div>
 
         {/* Goal type donut */}
-        <div className="glass-card p-5 animate-fade-in">
+        <div className="glass-card-elevated p-5 animate-fade-in">
           <h3 className="text-sm font-semibold mb-4">Типы целей</h3>
           {dashLoading ? (
             <Skeleton className="h-48 w-full" />
           ) : goalTypeDist.length > 0 ? (
             <>
-              <ResponsiveContainer width="100%" height={180}>
+              <ResponsiveContainer width="100%" height={210}>
                 <PieChart>
                   <Pie
                     data={goalTypeDist}
@@ -248,27 +295,40 @@ export default function DashboardPage() {
                     nameKey="name"
                     cx="50%"
                     cy="50%"
-                    innerRadius={45}
-                    outerRadius={70}
+                    innerRadius={52}
+                    outerRadius={80}
                     paddingAngle={3}
+                    isAnimationActive={true} animationDuration={800} animationEasing="ease-out"
+                    stroke="transparent"
                   >
                     {goalTypeDist.map((entry, i) => (
-                      <Cell key={i} fill={entry.fill} />
+                      <Cell key={i} fill={entry.fill} stroke="transparent" />
                     ))}
                   </Pie>
-                  <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} />
+                  <Tooltip contentStyle={getTooltipStyle()} cursor={false} wrapperStyle={{ outline: "none" }} />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="space-y-1.5 mt-1">
-                {goalTypeDist.map((s) => (
-                  <div key={s.name} className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 rounded-full" style={{ background: s.fill }} />
-                      <span className="text-muted-foreground">{s.name}</span>
-                    </div>
-                    <span className="font-semibold">{s.value}</span>
-                  </div>
-                ))}
+              <div className="space-y-2 mt-2">
+                {(() => {
+                  const total = goalTypeDist.reduce((s, x) => s + x.value, 0) || 1;
+                  return goalTypeDist.map((s) => {
+                    const pct = Math.round((s.value / total) * 100);
+                    return (
+                      <div key={s.name} className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2.5 h-2.5 rounded-full" style={{ background: s.fill }} />
+                            <span className="text-muted-foreground">{s.name}</span>
+                          </div>
+                          <span className="font-mono font-semibold">{s.value} ({pct}%)</span>
+                        </div>
+                        <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
+                          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: s.fill }} />
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </>
           ) : (
@@ -277,79 +337,53 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Maturity table + Pending alerts */}
+      {/* Section divider */}
+      <div className="section-divider" />
+
+      {/* Status breakdown + Pending alerts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="glass-card p-5 lg:col-span-2 animate-fade-in">
-          <h3 className="text-sm font-semibold mb-4">
-            Индекс зрелости целеполагания по подразделениям
-          </h3>
+        <div className="glass-card-elevated p-5 lg:col-span-2 animate-fade-in">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold">Распределение целей по статусу</h3>
+            <a href="/hr/analytics" className="text-xs text-primary hover:underline">
+              Полная аналитика →
+            </a>
+          </div>
           {dashLoading ? (
-            <div className="space-y-2">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className="h-10 w-full" />
-              ))}
+            <Skeleton className="h-48 w-full" />
+          ) : statusDist.length > 0 ? (
+            <div className="space-y-3">
+              {statusDist.map((s) => {
+                const total = statusDist.reduce((sum, x) => sum + x.value, 0) || 1;
+                const pct = Math.round((s.value / total) * 100);
+                return (
+                  <div key={s.name} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ background: s.fill }} />
+                        <span className="text-muted-foreground">{s.name}</span>
+                      </div>
+                      <span className="font-mono font-semibold">{s.value} ({pct}%)</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${pct}%`, background: s.fill }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          ) : (dashboard?.departments?.length ?? 0) === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">
-              Нет данных за {quarter} {year}
-            </p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-xs text-muted-foreground border-b border-border">
-                    <th className="text-left py-2 pr-4 font-medium">Подразделение</th>
-                    <th className="text-center py-2 px-3 font-medium">Индекс</th>
-                    <th className="text-center py-2 px-3 font-medium">Ср. SMART</th>
-                    <th className="text-center py-2 px-3 font-medium">Стратег. %</th>
-                    <th className="text-center py-2 px-3 font-medium">Целей</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(dashboard?.departments ?? []).map((d) => (
-                    <tr
-                      key={d.department_id}
-                      className="border-b border-border/50 hover:bg-muted/30 transition-colors"
-                    >
-                      <td className="py-3 pr-4 font-medium">{d.department_name}</td>
-                      <td className="text-center py-3 px-3">
-                        <span
-                          className={`font-mono font-bold ${
-                            d.maturity_index >= 0.8
-                              ? "text-success"
-                              : d.maturity_index >= 0.6
-                              ? "text-warning"
-                              : "text-destructive"
-                          }`}
-                        >
-                          {d.maturity_index.toFixed(2)}
-                        </span>
-                      </td>
-                      <td className="text-center py-3 px-3 font-mono">
-                        {d.avg_smart.toFixed(2)}
-                      </td>
-                      <td className="text-center py-3 px-3">
-                        <div className="inline-flex items-center gap-2">
-                          <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-primary rounded-full"
-                              style={{ width: `${d.strategic_percent}%` }}
-                            />
-                          </div>
-                          <span className="text-xs font-mono">{d.strategic_percent}%</span>
-                        </div>
-                      </td>
-                      <td className="text-center py-3 px-3 font-mono">{d.total_goals}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <p className="text-sm text-muted-foreground py-4 text-center">
+              Нет целей за {quarter} {year}
+            </p>
           )}
         </div>
 
         {/* Pending goals as alerts */}
-        <div className="glass-card p-5 animate-fade-in">
+        <div className="glass-card-elevated p-5 animate-fade-in">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold">На согласовании</h3>
             {pendingGoals.length > 0 && (
@@ -398,6 +432,9 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Section divider */}
+      <div className="section-divider" />
 
       {/* Recent goals */}
       <div>

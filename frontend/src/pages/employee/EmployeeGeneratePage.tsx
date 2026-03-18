@@ -1,296 +1,579 @@
 import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { SmartScoreGroup } from "@/components/SmartScoreBar";
-import { Check, ChevronRight, RefreshCw, Sparkles, Wand2, Zap, AlertTriangle, ArrowRight } from "lucide-react";
-import { mySuggestions } from "@/data/mockEmployee";
-import { managerOwnGoals } from "@/data/mockManager";
+import {
+  Check, ChevronRight, RefreshCw, Sparkles, Wand2, Zap, AlertTriangle, Loader2, CheckCircle2, FileText,
+} from "lucide-react";
+import { toast } from "@/components/ui/use-toast";
+import { formatQuarterYear, getCurrentQuarterYear } from "@/lib/date";
+import { api, parseQuarter, type GenerateGoalsResponse, type SuggestedGoalItem } from "@/lib/api";
+import { useCurrentEmployee } from "@/hooks/use-current-employee";
 
-// F-17: Alignment level labels and colors
-const alignmentConfig: Record<string, { label: string; className: string }> = {
+const ALIGNMENT_CFG: Record<string, { label: string; className: string }> = {
   strategic: { label: "Стратегическая", className: "bg-info/10 text-info" },
   functional: { label: "Функциональная", className: "bg-accent/10 text-accent-foreground border-accent/30" },
   operational: { label: "Операционная", className: "bg-muted text-muted-foreground" },
 };
 
-// F-19: Goal type labels and colors
-const goalTypeConfig: Record<string, { label: string; className: string }> = {
+const TYPE_CFG: Record<string, { label: string; className: string }> = {
   activity: { label: "Activity", className: "bg-warning/10 text-warning" },
   output: { label: "Output", className: "bg-success/10 text-success" },
   impact: { label: "Impact", className: "bg-info/10 text-info" },
 };
 
-const generationHistory = [
-  { id: "v2", date: "2026-02-08", accepted: 3, context: "Вовлечённость, адаптация" },
-  { id: "v1", date: "2026-01-20", accepted: 2, context: "Цифровизация" },
-];
+function GeneratedGoalCard({
+  goal, isSelected, weight, rewriteApplied, isRewriting, onToggle, onWeightChange, onApplyRewrite, onRemove,
+}: {
+  goal: SuggestedGoalItem;
+  isSelected: boolean;
+  weight: number;
+  rewriteApplied: boolean;
+  isRewriting: boolean;
+  onToggle: () => void;
+  onWeightChange: (v: number) => void;
+  onApplyRewrite: () => void;
+  onRemove: () => void;
+}) {
+  const alignment = ALIGNMENT_CFG[goal.alignment_level ?? "operational"] ?? ALIGNMENT_CFG.operational;
+  const alignmentSource = goal.alignment_source ?? goal.source_doc_title ?? undefined;
+  const typeTag = TYPE_CFG[goal.goal_type] ?? TYPE_CFG.activity;
+  const lowSmart = goal.smart_index < 0.7;
+  const isActivity = goal.goal_type === "activity";
+  const hasDuplicates = (goal.duplicate_with?.length ?? 0) > 0;
 
-export default function EmployeeGeneratePage() {
-  const [generated, setGenerated] = useState(false);
-  const [focus, setFocus] = useState("Цифровизация HR-процессов, рост вовлечённости, оптимизация грейдов");
-  const [selected, setSelected] = useState<number[]>([]);
-  const [weights, setWeights] = useState<Record<number, number>>({ 1: 30, 2: 35, 3: 35 });
-  // F-19: track rewrites applied per goal
-  const [rewrites, setRewrites] = useState<Record<number, boolean>>({});
-
-  // F-14: real manager goals for cascading context
-  const managerApprovedGoals = managerOwnGoals.filter((g) => g.status === "approved");
-
-  const toggleSelect = (id: number) =>
-    setSelected((prev) => prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]);
-
-  const applyRewrite = (id: number) =>
-    setRewrites((prev) => ({ ...prev, [id]: true }));
-
-  const selectedGoals = mySuggestions.filter((g) => selected.includes(g.id));
-  const totalWeight = selectedGoals.reduce((sum, g) => sum + (weights[g.id] ?? 0), 0);
-  const countWarning = selected.length > 0 && (selected.length < 3 || selected.length > 5);
-  const weightWarning = selected.length > 0 && totalWeight !== 100;
+  const scores = goal.scores
+    ? [
+        { key: "S", label: "Specific", value: goal.scores.S },
+        { key: "M", label: "Measurable", value: goal.scores.M },
+        { key: "A", label: "Achievable", value: goal.scores.A },
+        { key: "R", label: "Relevant", value: goal.scores.R },
+        { key: "T", label: "Time-bound", value: goal.scores.T },
+      ]
+    : [
+        { key: "S", label: "Specific", value: Math.min(1, goal.smart_index + 0.05) },
+        { key: "M", label: "Measurable", value: goal.smart_index },
+        { key: "A", label: "Achievable", value: Math.min(1, goal.smart_index + 0.1) },
+        { key: "R", label: "Relevant", value: Math.min(1, goal.smart_index + 0.08) },
+        { key: "T", label: "Time-bound", value: goal.deadline ? Math.min(1, goal.smart_index + 0.05) : goal.smart_index - 0.15 },
+      ];
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div
+      onClick={onToggle}
+      className={`glass-card-elevated p-5 cursor-pointer transition-all duration-200 ${
+        isSelected ? "ring-2 ring-primary bg-primary/5" : "hover:bg-muted/30"
+      } ${lowSmart ? "border-warning/40" : ""}`}
+    >
+      <div className="flex items-start gap-4">
+        <div className={`mt-1 w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+          isSelected ? "border-primary bg-primary" : "border-border"
+        }`}>
+          {isSelected && <Check className="w-3 h-3 text-primary-foreground" />}
+        </div>
+
+        <div className="flex-1 space-y-3 min-w-0">
+          <p className="text-base font-medium leading-relaxed">{goal.goal_text}</p>
+
+          {lowSmart && !rewriteApplied && (
+            <div
+              className="flex items-start gap-2 bg-warning/5 border border-warning/20 rounded-lg p-3 text-xs"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+              <div className="space-y-1 flex-1">
+                <p className="font-medium text-warning">
+                  F-12: SMART {goal.smart_index.toFixed(2)} — ниже порога 0.7
+                </p>
+                <p className="text-muted-foreground">
+                  Рекомендуется переформулировать цель в output/impact формат с явным KPI и дедлайном.
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs gap-1 mt-1 border-warning/40 text-warning hover:bg-warning/10"
+                  disabled={isRewriting}
+                  onClick={onApplyRewrite}
+                >
+                  {isRewriting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
+                  {isRewriting ? "Переформулирую..." : "Улучшить формулировку"}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {rewriteApplied && (
+            <div className="bg-success/5 border border-success/20 rounded-lg p-2 text-xs text-success flex items-center gap-1.5">
+              <CheckCircle2 className="w-3.5 h-3.5" /> Применена AI-переформулировка
+            </div>
+          )}
+
+          {isActivity && !lowSmart && !rewriteApplied && (
+            <div
+              className="flex items-center gap-2 bg-warning/5 border border-warning/20 rounded-lg p-2 text-xs"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <AlertTriangle className="w-3 h-3 text-warning shrink-0" />
+              <span className="text-warning font-medium">F-19: Activity-цель</span>
+              <span className="text-muted-foreground">— рекомендуется переформулировать в Output.</span>
+              <button
+                className="text-primary underline ml-1 disabled:opacity-60"
+                disabled={isRewriting}
+                onClick={onApplyRewrite}
+              >
+                Переформулировать
+              </button>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <Zap className="w-3 h-3 text-primary" />
+            <span className="font-medium truncate max-w-[200px]">{goal.source_doc_title ?? "Источник"}</span>
+            <span>·</span>
+            <Badge variant="outline" className={`text-[10px] ${alignment.className}`}>{alignment.label}</Badge>
+            {alignmentSource && (
+              <Badge variant="outline" className="text-[10px] bg-muted/60 text-muted-foreground">
+                из: {alignmentSource}
+              </Badge>
+            )}
+            <Badge variant="outline" className={`text-[10px] ${typeTag.className}`}>{typeTag.label}</Badge>
+            {goal.deadline && (
+              <span className="text-muted-foreground/70">до {goal.deadline}</span>
+            )}
+          </div>
+
+          {goal.source_quote && (
+            <div className="bg-muted/40 rounded-lg px-3 py-2 text-xs text-muted-foreground">
+              <span className="text-muted-foreground/60">Цитата из ВНД: </span>
+              <span className="italic">«{goal.source_quote}»</span>
+            </div>
+          )}
+
+          {goal.source_doc_id && (
+            <p className="text-xs text-muted-foreground/80">
+              Источник: {goal.source_doc_title ?? "Документ"} · ID: {goal.source_doc_id}
+              {goal.source_doc_link && (
+                <>
+                  {" "}
+                  · <a href={goal.source_doc_link} className="underline text-primary" target="_blank" rel="noreferrer">API</a>
+                </>
+              )}
+            </p>
+          )}
+
+          {hasDuplicates && (
+            <div
+              className="bg-warning/5 border border-warning/20 rounded-lg p-2 text-xs text-warning space-y-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-medium">F-21: Похожие цели обнаружены</span>
+                <button
+                  className="text-[10px] px-2 py-0.5 rounded bg-warning/10 text-warning border border-warning/30 hover:bg-warning/20 transition-colors"
+                  onClick={onRemove}
+                >
+                  Убрать из списка
+                </button>
+              </div>
+              {goal.duplicate_with.map((item) => (
+                <div key={item} className="text-muted-foreground">• {item}</div>
+              ))}
+            </div>
+          )}
+
+          {goal.warnings?.length > 0 && (
+            <div className="space-y-1">
+              {goal.warnings.map((warning) => (
+                <div key={warning} className="text-xs text-warning bg-warning/5 rounded px-2 py-1">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {goal.generation_context && (
+            <p className="text-xs text-muted-foreground">Контекст: {goal.generation_context}</p>
+          )}
+        </div>
+
+        <div className="w-40 shrink-0 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">SMART</span>
+            <span className={`text-sm font-bold font-mono ${
+              goal.smart_index >= 0.7 ? "text-success" : "text-warning"
+            }`}>
+              {goal.smart_index.toFixed(2)}
+            </span>
+          </div>
+          <SmartScoreGroup scores={scores} />
+          {isSelected && (
+            <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
+              <label className="text-xs text-muted-foreground">Вес цели, %</label>
+              <Input
+                type="number" min={0} max={100}
+                value={weight}
+                onChange={(e) => onWeightChange(Number(e.target.value))}
+                className="h-8 text-xs control-surface"
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function EmployeeGeneratePage() {
+  const qc = useQueryClient();
+  const { employee, employeeId } = useCurrentEmployee();
+  const { quarter: currentQuarter, year: currentYear } = getCurrentQuarterYear();
+  const [quarter, setQuarter] = useState(formatQuarterYear(currentQuarter, currentYear));
+  const [focus, setFocus] = useState("");
+  const [includeManager, setIncludeManager] = useState(true);
+
+  const [result, setResult] = useState<GenerateGoalsResponse | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [weights, setWeights] = useState<Record<string, number>>({});
+  const [rewrites, setRewrites] = useState<Record<string, boolean>>({});
+  const [rewriteLoading, setRewriteLoading] = useState<Record<string, boolean>>({});
+  const [accepted, setAccepted] = useState<string[]>([]);
+  const [removed, setRemoved] = useState<string[]>([]);
+
+  const { data: managerGoals = [] } = useQuery({
+    queryKey: ["manager-goals", employeeId, quarter],
+    queryFn: () => {
+      const { quarter: q, year } = parseQuarter(quarter);
+      return api.employees.managerGoals(employeeId!, q, year);
+    },
+    enabled: !!employeeId && includeManager,
+    staleTime: 60_000,
+  });
+
+  const generateMutation = useMutation({
+    mutationFn: () => {
+      const { quarter: q, year } = parseQuarter(quarter);
+      return api.generate.goals({
+        employee_id: employeeId!,
+        quarter: q,
+        year,
+        focus_direction: focus || undefined,
+        include_manager_goals: includeManager,
+      });
+    },
+    onSuccess: (data) => {
+      setResult(data);
+      setSelected([]);
+      setWeights({});
+      setRewrites({});
+      setRewriteLoading({});
+      setAccepted([]);
+      setRemoved([]);
+      const suggestions = data.suggestions;
+      const w: Record<string, number> = {};
+      const hasSuggestions = suggestions.every((s) => (s.weight_suggestion ?? 0) > 0);
+      if (hasSuggestions) {
+        const total = suggestions.reduce((sum, s) => sum + (s.weight_suggestion ?? 0), 0);
+        suggestions.forEach((s) => {
+          w[s.id] = Math.round(((s.weight_suggestion ?? 0) / total) * 100);
+        });
+        const roundedSum = Object.values(w).reduce((a, b) => a + b, 0);
+        if (roundedSum !== 100 && suggestions.length > 0) w[suggestions[0].id] += 100 - roundedSum;
+      } else {
+        const equal = suggestions.length > 0 ? Math.floor(100 / suggestions.length) : 25;
+        suggestions.forEach((s) => { w[s.id] = equal; });
+      }
+      setWeights(w);
+    },
+  });
+
+  const acceptMutation = useMutation({
+    mutationFn: async () => {
+      const warnings: string[] = [];
+      const selectedGoals = (result?.suggestions ?? []).filter((s) => selected.includes(s.id));
+      for (const g of selectedGoals) {
+        const accepted = await api.generate.accept({
+          suggested_goal_id: g.id,
+          employee_id: employeeId!,
+          weight: weights[g.id],
+        });
+        warnings.push(...(accepted.warnings ?? []));
+      }
+      return Array.from(new Set(warnings));
+    },
+    onSuccess: (warnings) => {
+      setAccepted([...selected]);
+      qc.invalidateQueries({ queryKey: ["employee-goals", employeeId] });
+      if (warnings.length > 0) {
+        toast({
+          title: "Есть предупреждения по набору целей",
+          description: warnings.join(" "),
+          variant: "destructive",
+        });
+      }
+    },
+  });
+
+  const toggleSelect = (id: string) => {
+    const next = selected.includes(id)
+      ? selected.filter((i) => i !== id)
+      : [...selected, id];
+    setSelected(next);
+    if (next.length > 0) {
+      const perGoal = Math.floor(100 / next.length);
+      const remainder = 100 - perGoal * next.length;
+      const newW: Record<string, number> = {};
+      next.forEach((gId, i) => { newW[gId] = perGoal + (i === 0 ? remainder : 0); });
+      setWeights((prev) => ({ ...prev, ...newW }));
+    }
+  };
+
+  const removeGoal = (id: string) => {
+    setRemoved((prev) => [...prev, id]);
+    setSelected((prev) => prev.filter((i) => i !== id));
+  };
+
+  const applyRewrite = async (goalId: string) => {
+    if (!result || rewriteLoading[goalId]) {
+      return;
+    }
+    const goal = result.suggestions.find((item) => item.id === goalId);
+    if (!goal) {
+      return;
+    }
+
+    setRewriteLoading((prev) => ({ ...prev, [goalId]: true }));
+    try {
+      const rewritten = await api.generate.rewrite({
+        goal_text: goal.goal_text,
+        position: employee?.position ?? undefined,
+        department: employee?.department ?? undefined,
+      });
+
+      setResult((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        return {
+          ...prev,
+          suggestions: prev.suggestions.map((item) =>
+            item.id === goalId
+              ? {
+                  ...item,
+                  goal_text: rewritten.rewritten,
+                  smart_index: rewritten.smart_index_after,
+                }
+              : item
+          ),
+        };
+      });
+      setRewrites((prev) => ({ ...prev, [goalId]: true }));
+      toast({
+        title: "Цель обновлена",
+        description: `SMART: ${rewritten.smart_index_before.toFixed(2)} → ${rewritten.smart_index_after.toFixed(2)}`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось переформулировать цель";
+      toast({ title: "Ошибка переформулировки", description: message, variant: "destructive" });
+    } finally {
+      setRewriteLoading((prev) => ({ ...prev, [goalId]: false }));
+    }
+  };
+
+  const selectedGoals = (result?.suggestions ?? []).filter((s) => selected.includes(s.id));
+  const totalWeight = selectedGoals.reduce((sum, g) => sum + (weights[g.id] ?? 0), 0);
+  const weightWarning = selected.length > 0 && Math.abs(totalWeight - 100) > 1;
+  const allAccepted = accepted.length > 0 && accepted.sort().join() === selected.sort().join();
+
+  if (!employeeId) {
+    return (
+      <div className="glass-card-elevated state-panel p-8 text-sm text-muted-foreground">
+        Сотрудник не найден. Проверьте данные в БД.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Sparkles className="w-6 h-6 text-primary" /> AI Подбор целей
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <h1 className="text-2xl font-bold tracking-tight">AI Подбор целей</h1>
+        <p className="text-xs text-muted-foreground mt-1">
           Получите набор целей, согласованный со стратегией, ВНД и целями руководителя
         </p>
       </div>
 
-      {/* Generation params */}
-      <div className="glass-card p-6 space-y-4">
+      <div className="glass-card-elevated p-5 space-y-4">
         <h3 className="text-sm font-semibold">Параметры генерации</h3>
+        {/* Цели руководителя — вверху */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium text-muted-foreground">
+              Цели руководителя (каскадирование)
+            </label>
+            <button
+              className={`text-xs px-2 py-0.5 rounded transition-colors ${
+                includeManager ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+              }`}
+              onClick={() => setIncludeManager((v) => !v)}
+            >
+              {includeManager ? "Включено" : "Выключено"}
+            </button>
+          </div>
+          {includeManager && (
+            <div className="bg-muted/40 rounded-lg p-3 text-xs text-muted-foreground space-y-1">
+              {managerGoals.length > 0 ? (
+                managerGoals.map((g) => <p key={g.id}>• {g.goal_text}</p>)
+              ) : (
+                <p className="text-muted-foreground/60 italic">Цели руководителя не найдены</p>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">Сотрудник</label>
-            <Input defaultValue="Сидорова Мария" disabled className="bg-muted/50" />
+            <Input value={employee?.full_name ?? "—"} disabled className="control-surface" />
           </div>
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">Должность / Подразделение</label>
-            <Input defaultValue="HR Менеджер · HR Департамент" disabled className="bg-muted/50" />
+            <Input value={`${employee?.position ?? "—"} · ${employee?.department ?? "—"}`} disabled className="control-surface" />
           </div>
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">Квартал</label>
-            <Input defaultValue="Q2 2026" />
+            <Input value={quarter} onChange={(e) => setQuarter(e.target.value)} className="control-surface" />
           </div>
         </div>
         <div className="space-y-2">
-          <label className="text-xs font-medium text-muted-foreground">Фокус-приоритеты квартала (F-11)</label>
+          <label className="text-xs font-medium text-muted-foreground">Фокус-приоритеты квартала</label>
           <Textarea
-            placeholder="Например: цифровизация, вовлечённость, оптимизация..."
             value={focus}
             onChange={(e) => setFocus(e.target.value)}
             rows={2}
+            className="control-surface"
           />
         </div>
 
-        {/* F-14: Cascading — real manager goals */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-muted-foreground">Цели руководителя (каскадирование F-14)</label>
-            <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary">Иванова Анна · HR Директор</Badge>
-          </div>
-          <div className="bg-muted/40 rounded-lg p-3 space-y-2">
-            {managerApprovedGoals.map((g) => (
-              <div key={g.id} className="flex items-start gap-2 text-xs text-muted-foreground">
-                <ArrowRight className="w-3 h-3 text-primary shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <p>{g.text}</p>
-                  <span className="text-[10px] text-muted-foreground/60">{g.source} · SMART {g.smartIndex.toFixed(2)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <Button onClick={() => setGenerated(true)} className="gap-2">
-          <Wand2 className="w-4 h-4" /> Сгенерировать цели
+        <Button
+          onClick={() => generateMutation.mutate()}
+          disabled={generateMutation.isPending}
+          className="gap-2"
+        >
+          {generateMutation.isPending ? (
+            <><Loader2 className="w-4 h-4 animate-spin" /> Генерирую...</>
+          ) : (
+            <><Wand2 className="w-4 h-4" /> Сгенерировать цели</>
+          )}
         </Button>
       </div>
 
-      {/* Generation history (F-15) */}
-      <div className="glass-card p-5">
-        <h3 className="text-sm font-semibold mb-3">История генераций (F-15)</h3>
-        <div className="space-y-2 text-sm text-muted-foreground">
-          {generationHistory.map((item) => (
-            <div key={item.id} className="flex items-center justify-between border-b border-border/40 pb-2">
-              <div>
-                <p className="font-medium text-foreground/80">{item.id} · {item.date}</p>
-                <p className="text-xs">Контекст: {item.context}</p>
-              </div>
-              <Badge variant="outline" className="text-xs">Принято {item.accepted}</Badge>
-            </div>
-          ))}
+      {result && result.documents_used.length > 0 && (
+        <div className="glass-card-elevated p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <FileText className="w-4 h-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold">
+              Источники ВНД, использованные при генерации
+            </h3>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {result.documents_used.map((d) => (
+              <Badge key={d} variant="outline" className="text-[10px]">{d}</Badge>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Generated goals */}
-      {generated && (
+      {result && result.warnings.length > 0 && (
+        <div className="glass-card-elevated state-panel p-4 border-warning/20">
+          <h3 className="text-xs font-semibold text-warning uppercase tracking-wide mb-2">
+            Предупреждения генерации
+          </h3>
+          <div className="space-y-1">
+            {result.warnings.map((warning) => (
+              <p key={warning} className="text-xs text-muted-foreground">{warning}</p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {result && (
         <div className="space-y-4 animate-fade-in">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold">
-              Предложенные цели ({mySuggestions.length}) — F-09/F-12
+              Предложенные цели ({result.suggestions.length})
             </h3>
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="text-xs">{selected.length} выбрано</Badge>
-              <Button variant="outline" size="sm" className="gap-1 text-xs">
+              <Button
+                variant="outline" size="sm" className="gap-1 text-xs"
+                onClick={() => generateMutation.mutate()}
+                disabled={generateMutation.isPending}
+              >
                 <RefreshCw className="w-3 h-3" /> Перегенерировать
               </Button>
             </div>
           </div>
 
-          {mySuggestions.map((goal) => {
-            const isSelected = selected.includes(goal.id);
-            const alignment = alignmentConfig[goal.linkType] ?? alignmentConfig.operational;
-            const type = goalTypeConfig[goal.goalType ?? "activity"];
-            const isActivity = goal.goalType === "activity";
-            const rewriteApplied = rewrites[goal.id];
+          {result.suggestions.filter((g) => !removed.includes(g.id)).map((goal) => (
+            <GeneratedGoalCard
+              key={goal.id}
+              goal={goal}
+              isSelected={selected.includes(goal.id)}
+              weight={weights[goal.id] ?? 25}
+              rewriteApplied={!!rewrites[goal.id]}
+              isRewriting={!!rewriteLoading[goal.id]}
+              onToggle={() => toggleSelect(goal.id)}
+              onWeightChange={(v) => setWeights((prev) => ({ ...prev, [goal.id]: v }))}
+              onApplyRewrite={() => void applyRewrite(goal.id)}
+              onRemove={() => removeGoal(goal.id)}
+            />
+          ))}
 
-            return (
-              <div
-                key={goal.id}
-                onClick={() => toggleSelect(goal.id)}
-                className={`glass-card p-5 cursor-pointer transition-all duration-200 ${
-                  isSelected ? "ring-2 ring-primary bg-primary/5" : "hover:bg-muted/30"
-                }`}
-              >
-                <div className="flex items-start gap-4">
-                  <div className={`mt-1 w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
-                    isSelected ? "border-primary bg-primary" : "border-border"
-                  }`}>
-                    {isSelected && <Check className="w-3 h-3 text-primary-foreground" />}
-                  </div>
-
-                  <div className="flex-1 space-y-3">
-                    {/* F-09/F-12: Goal text — with rewrite if applied */}
-                    <p className="text-sm leading-relaxed">{goal.text}</p>
-
-                    {/* F-19: Activity warning + rewrite suggestion */}
-                    {isActivity && !rewriteApplied && (
-                      <div
-                        className="flex items-start gap-2 bg-warning/5 border border-warning/20 rounded-lg p-3 text-xs"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
-                        <div className="space-y-1">
-                          <p className="font-medium text-warning">F-19: Activity-цель — рекомендуется переформулировать в Output/Impact</p>
-                          <p className="text-muted-foreground">AI предлагает: сформулируйте ожидаемый результат вместо описания действия.</p>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 text-xs gap-1 mt-1 border-warning/40 text-warning hover:bg-warning/10"
-                            onClick={() => applyRewrite(goal.id)}
-                          >
-                            <Wand2 className="w-3 h-3" /> Переформулировать в Output
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                    {isActivity && rewriteApplied && (
-                      <div className="bg-success/5 border border-success/20 rounded-lg p-3 text-xs text-success">
-                        ✓ Переформулирована AI в Output: «Повысить долю вакансий, закрытых в срок, с 62% до 75% к 30.06.2026»
-                      </div>
-                    )}
-
-                    {/* Badges: F-10 source, F-17 alignment, F-19 type */}
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      <Zap className="w-3 h-3 text-primary" />
-                      <span className="font-medium">{goal.source}</span>
-                      <span>·</span>
-                      {/* F-17: alignment level */}
-                      <Badge variant="outline" className={`text-[10px] ${alignment.className}`}>
-                        {alignment.label}
-                      </Badge>
-                      {/* F-19: goal type */}
-                      <Badge variant="outline" className={`text-[10px] ${type.className}`}>
-                        {type.label}
-                      </Badge>
-                      {goal.smartIndex < 0.7 && (
-                        <Badge variant="outline" className="text-[10px] bg-warning/10 text-warning">
-                          ⚠ SMART {goal.smartIndex.toFixed(2)} — переформулирована
-                        </Badge>
-                      )}
-                    </div>
-
-                    {/* F-10: Source snippet */}
-                    <div className="bg-muted/40 rounded-lg px-3 py-2 text-xs text-muted-foreground">
-                      <span className="text-muted-foreground/60">Цитата ВНД: </span>
-                      {goal.sourceSnippet}
-                    </div>
-
-                    {/* Context */}
-                    <p className="text-xs text-muted-foreground">Контекст: {goal.context}</p>
-                  </div>
-
-                  {/* SMART score (F-12) */}
-                  <div className="w-40 shrink-0 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">SMART</span>
-                      <span className={`text-sm font-bold font-mono ${goal.smartIndex >= 0.7 ? "text-success" : "text-warning"}`}>
-                        {goal.smartIndex.toFixed(2)}
-                      </span>
-                    </div>
-                    <SmartScoreGroup scores={goal.scores} />
-                    {/* F-13: weight input when selected */}
-                    {isSelected && (
-                      <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
-                        <label className="text-xs text-muted-foreground">Вес цели, %</label>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={100}
-                          value={weights[goal.id] ?? 0}
-                          onChange={(e) =>
-                            setWeights((prev) => ({ ...prev, [goal.id]: Number(e.target.value) }))
-                          }
-                          className="h-8 text-xs"
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-
-          {/* F-16/F-18: Count & weight checks */}
           {selected.length > 0 && (
             <div className="space-y-3">
-              {(countWarning || weightWarning) && (
-                <div className="glass-card p-4 text-sm border-warning/30">
-                  <h4 className="font-semibold">⚠ Проверка набора целей (F-16/F-18)</h4>
-                  <div className="mt-2 space-y-1 text-muted-foreground">
-                    {countWarning && (
-                      <p>Количество целей должно быть 3–5. Сейчас: {selected.length}.</p>
-                    )}
+              {weightWarning ? (
+                <div className="glass-card-elevated state-panel p-4 text-sm border-warning/30 space-y-1.5">
+                  <h4 className="font-semibold flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-warning" /> Проверка набора (F-16 / F-18)
+                  </h4>
+                  <div className="space-y-1 text-muted-foreground text-xs">
                     {weightWarning && (
                       <p>Суммарный вес должен быть 100%. Сейчас: {totalWeight}%.</p>
                     )}
                   </div>
                 </div>
-              )}
-              {!countWarning && !weightWarning && (
-                <div className="glass-card p-4 text-sm border-success/30">
-                  <p className="text-success font-medium">✓ Набор целей корректен: {selected.length} цели, сумма весов 100%</p>
+              ) : (
+                <div className="glass-card-elevated state-panel p-4 text-sm border-success/30">
+                  <p className="text-success font-medium flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4" />
+                    Набор корректен: {selected.length} цели, сумма весов 100%
+                  </p>
                 </div>
               )}
 
-              {/* F-21: Duplicate check */}
-              <div className="glass-card p-4 text-sm">
-                <h4 className="font-semibold">Верификация (F-21 дубликаты)</h4>
-                <p className="text-muted-foreground mt-2">
-                  Проверены дубликаты с текущими целями сотрудника и историческими данными подразделения. Серьёзных конфликтов не найдено.
-                </p>
-              </div>
-
-              <div className="flex justify-end">
-                <Button className="gap-2" disabled={countWarning || weightWarning}>
-                  Принять выбранные ({selected.length}) <ChevronRight className="w-4 h-4" />
-                </Button>
-              </div>
+              {allAccepted ? (
+                <div className="glass-card-elevated state-panel p-4 bg-success/5 border-success/20">
+                  <p className="text-success font-medium flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4" /> Цели успешно добавлены в набор сотрудника
+                  </p>
+                </div>
+              ) : (
+                <div className="flex justify-end">
+                  <Button
+                    className="gap-2"
+                    disabled={weightWarning || acceptMutation.isPending}
+                    onClick={() => acceptMutation.mutate()}
+                  >
+                    {acceptMutation.isPending ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Сохраняю...</>
+                    ) : (
+                      <>Принять выбранные ({selected.length}) <ChevronRight className="w-4 h-4" /></>
+                    )}
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </div>

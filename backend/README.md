@@ -1,92 +1,103 @@
 # GoalAI Platform — Backend
 
-FastAPI бэкенд для AI-модуля управления эффективностью персонала.
+Этот файл описывает backend-only сценарий. Основной входной документ проекта находится в корне репозитория:
 
-## Быстрый старт
+- основной README: [../README.md](../README.md)
+- архитектура: [../ARCHITECTURE.md](../ARCHITECTURE.md)
 
-### 1. Установка зависимостей
+## Что находится в `backend/`
+
+- FastAPI API
+- ORM-модели, приведённые к структуре хакатонного дампа
+- AI-оценка SMART
+- AI-генерация целей
+- RAG-сервис поверх PostgreSQL + ChromaDB
+- аналитика зрелости целеполагания
+
+## Backend-only запуск
+
+### 1. Подготовить окружение
 
 ```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-### 2. Настройка окружения
-
-```bash
+cd /Users/muslimakosmagambetova/Downloads/hr_tech/backend
 cp .env.example .env
-# Заполни OPENAI_API_KEY в .env
 ```
 
-### 3. Запуск через Docker (рекомендуется)
+Минимально заполните:
 
-```bash
-docker-compose up -d
+```env
+API_KEY=ваш_ключ_gemini
+AUTH_JWT_SECRET=change-me-in-production
 ```
 
-### 4. Или запуск локально
+## 2. Поднять PostgreSQL и ChromaDB
 
 ```bash
-# Запусти PostgreSQL и ChromaDB через docker-compose:
-docker-compose up -d postgres chromadb
+docker compose up -d postgres chromadb
+```
 
-# Загрузи тестовые данные:
-python -m scripts.seed_test_data
+В backend compose:
 
-# Заполни векторную базу (RAG):
-python -m scripts.ingest_documents
+- PostgreSQL доступен на `localhost:5432`
+- ChromaDB доступна на `localhost:8001`
 
-# Запусти API:
+## 3. Загрузить дамп
+
+Из директории `backend/`:
+
+```bash
+docker compose exec -T postgres psql -U postgres -d goalai < ../mock_smart_1.sql
+```
+
+Если нужен абсолютный путь:
+
+```bash
+docker compose exec -T postgres psql -U postgres -d goalai < /Users/muslimakosmagambetova/Downloads/hr_tech/mock_smart_1.sql
+```
+
+## 4. Запустить API
+
+```bash
 uvicorn app.main:app --reload --port 8000
 ```
 
-### 5. Документация API
+Доступ:
 
-Открой в браузере: http://localhost:8000/docs
+- API: `http://localhost:8000`
+- Swagger: `http://localhost:8000/docs`
+- Health: `http://localhost:8000/health`
 
-## Основные эндпоинты
+## 5. Индексация документов в ChromaDB
 
-| Метод | URL | Описание |
-|-------|-----|----------|
-| POST | /api/v1/evaluate/goal | SMART-оценка одной цели |
-| POST | /api/v1/evaluate/batch | Пакетная оценка за квартал |
-| POST | /api/v1/generate/goals | Генерация 3-5 целей |
-| POST | /api/v1/generate/accept | Принять сгенерированную цель |
-| POST | /api/v1/generate/rewrite | Переформулировать цель |
-| GET | /api/v1/analytics/company | Дашборд компании |
-| GET | /api/v1/analytics/department/{id} | Дашборд подразделения |
-| GET | /api/v1/employees/{id}/goals | Цели сотрудника |
-| GET | /api/v1/documents/search?q=... | RAG-поиск по ВНД |
+Обычно backend сам запускает индексацию на старте, если `document_chunks` ещё нет.
 
-## Тестовые данные
-
-После `seed_test_data.py`:
-
-```
-HR директор:  30000000-0000-0000-0000-000000000001
-Руководитель: 30000000-0000-0000-0000-000000000002
-Сотрудник:    30000000-0000-0000-0000-000000000003
-Отдел продаж: 10000000-0000-0000-0000-000000000005
-```
-
-## Пример запроса
+Если нужна ручная переиндексация:
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/evaluate/goal \
-  -H "Content-Type: application/json" \
-  -d '{
-    "goal_text": "Улучшить работу с клиентами",
-    "position": "Менеджер по продажам",
-    "department": "Продажи"
-  }'
+python scripts/ingest_documents.py
 ```
 
-## На хакатоне
+## Полезные команды
 
-При получении дампа БД организаторов:
+Логи инфраструктуры:
+
 ```bash
-psql -U postgres -d goalai < hackathon_dump.sql
-python -m scripts.ingest_documents  # переиндексировать реальные ВНД
+docker compose logs -f postgres
+docker compose logs -f chromadb
 ```
+
+Проверка, что backend видит базу:
+
+```bash
+curl http://localhost:8000/health
+```
+
+## Если генерация или RAG работают плохо
+
+Проверьте:
+
+1. Импортирован ли `../mock_smart_1.sql`.
+2. Есть ли в `documents` непустой `content`.
+3. Выполнилась ли индексация в ChromaDB.
+4. Заполнен ли `API_KEY`.
+5. Есть ли исторические цели и цели руководителей в `goals`.

@@ -1,4 +1,6 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 
 export type Role = "hr" | "manager" | "employee";
 
@@ -41,27 +43,50 @@ type RoleContextValue = {
 const RoleContext = createContext<RoleContextValue | null>(null);
 
 export function RoleProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient();
   const [role, setRoleState] = useState<Role>(() => {
     if (typeof window === "undefined") return "hr";
-    const stored = window.localStorage.getItem(ROLE_STORAGE_KEY) as Role | null;
-    if (stored === "employee" || stored === "hr" || stored === "manager") return stored;
+    try {
+      const stored = window.localStorage.getItem(ROLE_STORAGE_KEY) as Role | null;
+      if (stored === "employee" || stored === "hr" || stored === "manager") return stored;
+    } catch {
+      // Ignore storage access errors and continue with default role.
+    }
     return "hr";
   });
 
-  const setRole = (newRole: Role) => {
-    setRoleState(newRole);
-    if (typeof document !== "undefined") {
-      document.documentElement.setAttribute("data-role", newRole);
-    }
-  };
+  const setRole = useCallback((newRole: Role) => {
+    setRoleState((prevRole) => {
+      if (newRole === prevRole) return prevRole;
+      queryClient.clear();
+      if (typeof window !== "undefined") {
+        try {
+          window.localStorage.setItem(ROLE_STORAGE_KEY, newRole);
+        } catch {
+          // Ignore storage access errors.
+        }
+      }
+      if (typeof document !== "undefined") {
+        document.documentElement.setAttribute("data-role", newRole);
+      }
+      return newRole;
+    });
+  }, [queryClient]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(ROLE_STORAGE_KEY, role);
+      try {
+        window.localStorage.setItem(ROLE_STORAGE_KEY, role);
+      } catch {
+        // Ignore storage access errors.
+      }
     }
     if (typeof document !== "undefined") {
       document.documentElement.setAttribute("data-role", role);
     }
+    void api.auth.bootstrap().catch(() => {
+      // Will be surfaced by concrete API calls if auth bootstrap is invalid.
+    });
   }, [role]);
 
   const value = useMemo(
@@ -70,7 +95,7 @@ export function RoleProvider({ children }: { children: React.ReactNode }) {
       setRole,
       profile: roleProfiles[role],
     }),
-    [role]
+    [role, setRole]
   );
 
   return <RoleContext.Provider value={value}>{children}</RoleContext.Provider>;
